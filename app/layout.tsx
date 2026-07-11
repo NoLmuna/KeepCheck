@@ -13,9 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "KeepCheck: Food & Drink Tracker",
+  title: "KeepCheck",
   description:
     "Log and rate your experiences at food and beverage businesses.",
+  icons: {
+    icon: "/KeepCheck-Logo.png",
+    apple: "/KeepCheck-Logo.png",
+  },
 };
 
 export default function RootLayout({
@@ -26,7 +30,8 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

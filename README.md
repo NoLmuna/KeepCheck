@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+KeepCheck: Rate and Remember Food Spots
+KeepCheck is an offline-first Progressive Web Application (PWA) designed for foodies and explorers to catalog, rate, and curate their favorite food and drink experiences. Unlike traditional apps that rely on cloud servers, KeepCheck prioritizes data sovereignty—all your logs reside securely on your own device.
 
-## Getting Started
+Core Features
+Offline-First Architecture: Built on IndexedDB using Dexie.js, ensuring your data is accessible instantly, even without an internet connection.
 
-First, run the development server:
+Categorized Logging: Easily classify spots as Café or Restaurant to organize your personal database.
 
-```bash
+Reactive UI: Includes real-time search filtering, dynamic sorting (Newest, Highest, Lowest), and a seamless theme toggle (Light/Dark mode).
+
+Data Portability: Integrated backup system allowing you to export your entire database to a JSON file and restore it whenever needed.
+
+PWA Ready: Optimized for installation on iOS and Android, providing a native-like experience directly from your home screen.
+
+Technology Stack
+Framework: Next.js (App Router)
+
+Database: Dexie.js (IndexedDB wrapper)
+
+Styling: Tailwind CSS
+
+Deployment: Vercel
+
+Getting Started
+Prerequisites
+Node.js (v18 or later recommended)
+
+npm, yarn, or pnpm
+
+Installation
+Clone the repository:
+
+Bash
+git clone [your-repository-url]
+cd keepcheck
+Install dependencies:
+
+Bash
+npm install
+Start the development server:
+
+Bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Open http://localhost:3000 to view the application in your browser.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Project Structure
+app/: Contains the main page logic, layout, and global styles.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+public/: Contains static assets, including the application logo and manifest icons.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+sw.js: Service worker configuration for offline capabilities.
 
-## Learn More
+Roadmap & Future Scope
+The project is currently in active development. Future planned improvements include:
 
-To learn more about Next.js, take a look at the following resources:
+Enhanced Categorization: Expanding tags beyond Cafe/Restaurant (e.g., Food Truck, Bakery).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Advanced Filtering: Multi-select filters for combined searching.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Import Functionality: Direct JSON restoration within the UI.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+License
+This project is personal software. Feel free to use and modify it for your own needs.
