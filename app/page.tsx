@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type FoodSpotLog, type SpotCategory } from "./db";
+import { Trash2 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -25,14 +26,14 @@ function ThemeToggle({
       type="button"
       onClick={onToggle}
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 cursor-pointer"
+      className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 active:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600 cursor-pointer"
     >
       {dark ? (
         /* Sun icon */
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          width="18"
-          height="18"
+          width="20"
+          height="20"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -54,8 +55,8 @@ function ThemeToggle({
         /* Moon icon */
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          width="18"
-          height="18"
+          width="20"
+          height="20"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -88,11 +89,11 @@ function RatingPills({
           type="button"
           onClick={() => onChange(n)}
           className={`
-            h-9 w-9 rounded-full text-sm font-semibold
+            h-11 w-11 rounded-full text-sm font-semibold
             transition-all duration-150 cursor-pointer
             ${n === value
               ? "bg-black text-white shadow-lg scale-110 dark:bg-white dark:text-black"
-              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 active:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600"
             }
           `}
         >
@@ -123,12 +124,12 @@ function CategoryPills({
           Cafe: {
             active:
               "bg-violet-600 text-white shadow-lg dark:bg-violet-400 dark:text-black",
-            idle: "bg-violet-50 text-violet-700 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-300 dark:hover:bg-violet-900/50",
+            idle: "bg-violet-50 text-violet-700 hover:bg-violet-100 active:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:hover:bg-violet-900/50 dark:active:bg-violet-900/70",
           },
           Restaurant: {
             active:
               "bg-sky-600 text-white shadow-lg dark:bg-sky-400 dark:text-black",
-            idle: "bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-900/30 dark:text-sky-300 dark:hover:bg-sky-900/50",
+            idle: "bg-sky-50 text-sky-700 hover:bg-sky-100 active:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:hover:bg-sky-900/50 dark:active:bg-sky-900/70",
           },
         };
         return (
@@ -136,7 +137,7 @@ function CategoryPills({
             key={cat}
             type="button"
             onClick={() => onChange(cat)}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition-all duration-150 cursor-pointer ${active ? colors[cat].active : colors[cat].idle
+            className={`rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-150 cursor-pointer min-h-[44px] ${active ? colors[cat].active : colors[cat].idle
               }`}
           >
             {cat === "Cafe" ? "☕ Cafe" : "🍽️ Restaurant"}
@@ -159,7 +160,7 @@ function CategoryBadge({ category }: { category: SpotCategory }) {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${styles[category]}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${styles[category]}`}
     >
       {label}
     </span>
@@ -186,25 +187,25 @@ function SpotCard({ spot }: { spot: FoodSpotLog }) {
         : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300";
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-zinc-200 bg-white p-4 md:p-5 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 h-full">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-50">
+          <h3 className="truncate text-sm md:text-base font-semibold text-zinc-900 dark:text-zinc-50">
             {spot.name}
           </h3>
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <p className="text-xs text-zinc-400">{formatted}</p>
             <CategoryBadge category={spot.category ?? "Restaurant"} />
           </div>
         </div>
         <span
-          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${badgeColor}`}
+          className={`inline-flex h-9 w-9 md:h-10 md:w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${badgeColor}`}
         >
           {spot.rating}
         </span>
       </div>
       {spot.comment && (
-        <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
           {spot.comment}
         </p>
       )}
@@ -228,9 +229,9 @@ function PillButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${active
+      className={`rounded-lg px-3.5 py-2.5 text-xs md:text-sm font-medium transition-colors cursor-pointer whitespace-nowrap min-h-[44px] ${active
         ? "bg-black text-white dark:bg-white dark:text-black"
-        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 active:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:active:bg-zinc-600"
         }`}
     >
       {label}
@@ -336,25 +337,30 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  async function handleDelete(id: number) {
-    await db.spots.delete(id);
+  async function deleteEntry(id: number) {
+    try {
+      await db.spots.delete(id);
+    } catch (error) {
+      console.error("Failed to delete entry:", error);
+      alert("Could not delete the entry. Please try again.");
+    }
   }
 
   /* ---------- render ---------- */
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-4 py-10 sm:py-16">
+    <div className="mx-auto flex min-h-dvh w-full max-w-screen-lg flex-col px-4 sm:px-6 lg:px-8 py-6 sm:py-10 lg:py-16">
       {/* ---- Header ---- */}
-      <header className="relative mb-8 text-center">
+      <header className="relative mb-6 sm:mb-8 text-center">
         {/* Theme toggle — top-right */}
         <div className="absolute right-0 top-0">
           <ThemeToggle dark={dark} onToggle={() => setDark((d) => !d)} />
         </div>
 
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-4xl">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
           Keep<span className="text-emerald-600 dark:text-emerald-400">Check</span>
         </h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="mt-1 text-sm sm:text-base text-zinc-500 dark:text-zinc-400">
           Track &amp; rate every café and restaurant.
         </p>
       </header>
@@ -362,7 +368,7 @@ export default function Home() {
       {/* ---- Form ---- */}
       <form
         onSubmit={handleSubmit}
-        className="mb-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+        className="mx-auto w-full max-w-lg mb-8 sm:mb-10 rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
       >
         {/* Name */}
         <label
@@ -378,7 +384,7 @@ export default function Home() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Starbucks, Samgyupsal…"
-          className="mb-5 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
+          className="mb-5 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm sm:text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
         />
 
         {/* Category */}
@@ -413,14 +419,14 @@ export default function Home() {
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="Notes about the food, drink, vibe, or service…"
-          className="mb-5 w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
+          className="mb-5 w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm sm:text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
         />
 
         {/* Submit */}
         <button
           type="submit"
           disabled={saving || !name.trim()}
-          className="w-full rounded-lg bg-black py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 dark:bg-white dark:text-black cursor-pointer"
+          className="w-full rounded-lg bg-black py-3 text-sm sm:text-base font-semibold text-white transition-opacity hover:opacity-90 active:opacity-80 disabled:opacity-40 dark:bg-white dark:text-black cursor-pointer min-h-[44px]"
         >
           {saving ? "Saving…" : "Log Spot"}
         </button>
@@ -429,8 +435,8 @@ export default function Home() {
       {/* ---- Feed ---- */}
       <section className="flex flex-1 flex-col">
         {/* Title + Export */}
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-base sm:text-lg font-semibold text-zinc-900 dark:text-zinc-50">
             Your Logs
             {spots && spots.length > 0 && (
               <span className="ml-2 text-sm font-normal text-zinc-400">
@@ -443,7 +449,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleExport}
-              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 cursor-pointer"
+              className="rounded-lg border border-zinc-200 bg-white px-3.5 py-2.5 text-xs sm:text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 active:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600 cursor-pointer min-h-[44px]"
             >
               Export Backup
             </button>
@@ -452,7 +458,7 @@ export default function Home() {
 
         {/* ---- Control bar: Search + Category + Sort ---- */}
         {spots && spots.length > 0 && (
-          <div className="mb-4 flex flex-col gap-3">
+          <div className="mb-4 sm:mb-5 flex flex-col gap-3">
             {/* Search */}
             <div className="relative">
               <svg
@@ -474,12 +480,12 @@ export default function Home() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search spots or comments…"
-                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 py-2 pl-9 pr-3 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
+                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 py-3 pl-10 pr-3 text-sm sm:text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600 min-h-[44px]"
               />
             </div>
 
-            {/* Category filter + Sort buttons */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            {/* Category filter + Sort buttons — scrollable row on mobile */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mb-1 scrollbar-none">
               {/* Category filter */}
               <PillButton
                 label="All"
@@ -498,7 +504,7 @@ export default function Home() {
               />
 
               {/* Divider */}
-              <div className="mx-1 h-5 w-px bg-zinc-200 dark:bg-zinc-700" />
+              <div className="mx-1 h-5 w-px shrink-0 bg-zinc-200 dark:bg-zinc-700" />
 
               {/* Sort */}
               <PillButton
@@ -538,17 +544,17 @@ export default function Home() {
         )}
 
         {filteredSpots && filteredSpots.length > 0 && (
-          <div className="flex flex-col gap-3 overflow-y-auto pb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-6">
             {filteredSpots.map((spot) => (
               <div key={spot.id} className="group relative">
                 <SpotCard spot={spot} />
                 <button
                   type="button"
-                  onClick={() => spot.id !== undefined && handleDelete(spot.id)}
-                  className="absolute right-2 top-2 hidden h-6 w-6 items-center justify-center rounded-full bg-zinc-100 text-xs text-zinc-400 transition-colors hover:bg-red-100 hover:text-red-600 group-hover:inline-flex dark:bg-zinc-800 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400 cursor-pointer"
-                  aria-label="Delete log"
+                  onClick={() => spot.id !== undefined && deleteEntry(spot.id)}
+                  className="absolute right-2 top-2 hidden h-11 w-11 items-center justify-center rounded-full bg-zinc-100/90 text-zinc-400 transition-all hover:bg-red-100 hover:text-red-600 active:scale-95 active:bg-red-200 group-hover:inline-flex dark:bg-zinc-800/90 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400 dark:active:bg-red-900/50 cursor-pointer backdrop-blur-sm shadow-sm"
+                  aria-label="Delete entry"
                 >
-                  ✕
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
             ))}
