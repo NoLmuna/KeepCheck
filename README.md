@@ -1,63 +1,71 @@
-KeepCheck: Rate and Remember Food Spots
-KeepCheck is an offline-first Progressive Web Application (PWA) designed for foodies and explorers to catalog, rate, and curate their favorite food and drink experiences. Unlike traditional apps that rely on cloud servers, KeepCheck prioritizes data sovereignty—all your logs reside securely on your own device.
+# KeepCheck
 
-Core Features
-Offline-First Architecture: Built on IndexedDB using Dexie.js, ensuring your data is accessible instantly, even without an internet connection.
+An offline-first PWA for logging and rating food and drink spots. Built with Next.js, Dexie.js, and Tailwind CSS. Your data stays on your device—no cloud, no accounts, fully private.
 
-Categorized Logging: Easily classify spots as Café or Restaurant to organize your personal database.
 
-Reactive UI: Includes real-time search filtering, dynamic sorting (Newest, Highest, Lowest), and a seamless theme toggle (Light/Dark mode).
+## Project Structure
 
-Data Portability: Integrated backup system allowing you to export your entire database to a JSON file and restore it whenever needed.
+    keepcheck/
+        app/            - Main UI, search/sort logic, components
+        public/         - Static assets (logo, icons)
+        manifest.ts     - PWA configuration
+        sw.js           - Service worker for offline mode
+        package.json    - Dependencies and scripts
 
-PWA Ready: Optimized for installation on iOS and Android, providing a native-like experience directly from your home screen.
 
-Technology Stack
-Framework: Next.js (App Router)
+## Requirements
 
-Database: Dexie.js (IndexedDB wrapper)
+- Node.js (v18 or later recommended)
+- A modern web browser (Chrome, Edge, Safari, etc.)
+- npm, yarn, pnpm, or bun
 
-Styling: Tailwind CSS
 
-Deployment: Vercel
+## Setup Guide for New Cloners
 
-Getting Started
-Prerequisites
-Node.js (v18 or later recommended)
+### Step 1 - Clone or Download
 
-npm, yarn, or pnpm
+    git clone https://github.com/yourusername/keepcheck.git
+    cd keepcheck
 
-Installation
-Clone the repository:
 
-Bash
-git clone [your-repository-url]
-cd keepcheck
-Install dependencies:
+### Step 2 - Install Dependencies
 
-Bash
-npm install
-Start the development server:
+Run this in your terminal:
 
-Bash
-npm run dev
-Open http://localhost:3000 to view the application in your browser.
+    npm install
 
-Project Structure
-app/: Contains the main page logic, layout, and global styles.
 
-public/: Contains static assets, including the application logo and manifest icons.
+### Step 3 - Start Development
 
-sw.js: Service worker configuration for offline capabilities.
+    npm run dev
 
-Roadmap & Future Scope
-The project is currently in active development. Future planned improvements include:
+Open http://localhost:3000 in your browser.
 
-Enhanced Categorization: Expanding tags beyond Cafe/Restaurant (e.g., Food Truck, Bakery).
 
-Advanced Filtering: Multi-select filters for combined searching.
+## Running KeepCheck
 
-Import Functionality: Direct JSON restoration within the UI.
+Just open the app in your browser. Since it is a PWA, you can "Install" it via your browser menu to use it as a standalone app on your desktop or phone home screen.
 
-License
-This project is personal software. Feel free to use and modify it for your own needs.
+
+## How It Works
+
+    1. Your data is managed by Dexie.js (IndexedDB wrapper) stored locally in your browser.
+    2. Next.js App Router handles the UI state reactively using useLiveQuery.
+    3. Tailwind CSS handles the theme toggling via class-based dark mode.
+    4. Service Worker (sw.js) caches the app shell for offline reliability.
+
+
+## Tech Stack
+
+    Next.js         - React framework for the App Router
+    Dexie.js        - Local IndexedDB storage for offline-first data
+    Tailwind CSS    - Utility-first styling
+    Lucide React    - Clean, consistent iconography
+    Vercel          - Deployment platform
+
+
+## Roadmap & Future Scope
+
+- Direct JSON restoration (Import functionality)
+- Advanced categorization (Food Truck, Bakery, Bar, etc.)
+- Data visualization (Charts for your ratings over time)
