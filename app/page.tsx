@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useMemo, type FormEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type FoodSpotLog, type SpotCategory } from "./db";
-import { Trash2 } from "lucide-react";
+import { makeThumbnail, compressToBlob } from "@/utils/image";
+import SpotDetailModal from "@/components/SpotDetailModal";
+import { Trash2, Camera } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -170,7 +172,13 @@ function CategoryBadge({ category }: { category: SpotCategory }) {
 /* ------------------------------------------------------------------ */
 /*  Spot card (feed entry)                                             */
 /* ------------------------------------------------------------------ */
-function SpotCard({ spot }: { spot: FoodSpotLog }) {
+function SpotCard({
+  spot,
+  onClick,
+}: {
+  spot: FoodSpotLog;
+  onClick: () => void;
+}) {
   const date = new Date(spot.createdAt);
   const formatted = date.toLocaleDateString(undefined, {
     year: "numeric",
@@ -187,28 +195,54 @@ function SpotCard({ spot }: { spot: FoodSpotLog }) {
         : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300";
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 md:p-5 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 h-full">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm md:text-base font-semibold text-zinc-900 dark:text-zinc-50">
-            {spot.name}
-          </h3>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            <p className="text-xs text-zinc-400">{formatted}</p>
-            <CategoryBadge category={spot.category ?? "Restaurant"} />
-          </div>
+    <div
+      className="rounded-xl border border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 h-full cursor-pointer overflow-hidden"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      {/* Thumbnail */}
+      {spot.thumbnail && (
+        <div className="relative h-48 w-full overflow-hidden bg-zinc-950">
+          <img
+            src={spot.thumbnail}
+            alt={`Photo of ${spot.name}`}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
         </div>
-        <span
-          className={`inline-flex h-9 w-9 md:h-10 md:w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${badgeColor}`}
-        >
-          {spot.rating}
-        </span>
-      </div>
-      {spot.comment && (
-        <p className="mt-2.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-          {spot.comment}
-        </p>
       )}
+
+      {/* Text content */}
+      <div className="p-4 md:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-sm md:text-base font-semibold text-zinc-900 dark:text-zinc-50">
+              {spot.name}
+            </h3>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-zinc-400">{formatted}</p>
+              <CategoryBadge category={spot.category ?? "Restaurant"} />
+            </div>
+          </div>
+          <span
+            className={`inline-flex h-9 w-9 md:h-10 md:w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${badgeColor}`}
+          >
+            {spot.rating}
+          </span>
+        </div>
+        {spot.comment && (
+          <p className="mt-2.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+            {spot.comment}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -247,7 +281,12 @@ export default function Home() {
   const [category, setCategory] = useState<SpotCategory>("Restaurant");
   const [rating, setRating] = useState(7);
   const [comment, setComment] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /* -- Detail modal -- */
+  const [selectedSpotId, setSelectedSpotId] = useState<number | null>(null);
 
   /* -- Theme -- */
   const [dark, setDark] = useState(true);
@@ -255,6 +294,30 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+
+  /* -- Storage persistence (best-effort) -- */
+  useEffect(() => {
+    if (navigator.storage?.persist) {
+      navigator.storage.persist().then((granted) => {
+        console.log(
+          `[KeepCheck] Storage persistence ${granted ? "granted ✓" : "denied ✗"}`,
+        );
+      });
+    }
+  }, []);
+
+  /* -- Image preview object URL (raw file, NOT compressed) -- */
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
 
   /* -- Search, Sort & Category filter -- */
   const [search, setSearch] = useState("");
@@ -308,19 +371,71 @@ export default function Home() {
     if (!trimmed) return;
 
     setSaving(true);
-    await db.spots.add({
-      name: trimmed,
-      category,
-      rating,
-      comment: comment.trim(),
-      createdAt: Date.now(),
-    });
 
-    setName("");
-    setCategory("Restaurant");
-    setRating(7);
-    setComment("");
-    setSaving(false);
+    try {
+      // Compress image in parallel (if present) before opening the txn.
+      let thumbnail: string | undefined;
+      let compressedBlob: Blob | undefined;
+
+      if (imageFile) {
+        try {
+          [thumbnail, compressedBlob] = await Promise.all([
+            makeThumbnail(imageFile),
+            compressToBlob(imageFile),
+          ]);
+        } catch (imgErr) {
+          console.error("[KeepCheck] Image processing failed:", imgErr);
+          alert(
+            "Could not process this image format. Try taking a JPEG photo instead.",
+          );
+          setSaving(false);
+          return;
+        }
+      }
+
+      // Dual-write transaction — keeps `spots` and `images` in sync.
+      await db.transaction("rw", db.spots, db.images, async () => {
+        const spotId = await db.spots.add({
+          name: trimmed,
+          category,
+          rating,
+          comment: comment.trim(),
+          createdAt: Date.now(),
+          thumbnail,
+        });
+
+        if (compressedBlob) {
+          await db.images.add({
+            spotId,
+            blob: compressedBlob,
+            createdAt: Date.now(),
+          });
+        }
+      });
+
+      // Reset form
+      setName("");
+      setCategory("Restaurant");
+      setRating(7);
+      setComment("");
+      setImageFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err: unknown) {
+      // Handle quota exceeded (phone out of disk space).
+      if (
+        err instanceof DOMException &&
+        err.name === "QuotaExceededError"
+      ) {
+        alert(
+          "Your device is out of storage space. Free some space and try again.",
+        );
+      } else {
+        console.error("[KeepCheck] Save failed:", err);
+        alert("Something went wrong while saving. Please try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleExport() {
@@ -337,9 +452,13 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  /** Cascade delete: remove associated images THEN the spot record. */
   async function deleteEntry(id: number) {
     try {
-      await db.spots.delete(id);
+      await db.transaction("rw", db.spots, db.images, async () => {
+        await db.images.where("spotId").equals(id).delete();
+        await db.spots.delete(id);
+      });
     } catch (error) {
       console.error("Failed to delete entry:", error);
       alert("Could not delete the entry. Please try again.");
@@ -421,6 +540,56 @@ export default function Home() {
           placeholder="Notes about the food, drink, vibe, or service…"
           className="mb-5 w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm sm:text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
         />
+
+        {/* Photo upload */}
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Photo{" "}
+          <span className="normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
+            (optional)
+          </span>
+        </p>
+
+        <div className="mb-5">
+          {/* Custom file button */}
+          <label
+            htmlFor="spot-photo"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 active:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600 cursor-pointer min-h-[44px]"
+          >
+            <Camera className="h-4 w-4" />
+            {imageFile ? "Change Photo" : "Take or Choose Photo"}
+          </label>
+          <input
+            ref={fileInputRef}
+            id="spot-photo"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+            className="sr-only"
+          />
+
+          {/* Preview strip — uses raw object URL, NOT makeThumbnail() */}
+          {previewUrl && (
+            <div className="relative mt-3 inline-block">
+              <img
+                src={previewUrl}
+                alt="Selected photo preview"
+                className="h-24 w-24 rounded-lg object-cover border border-zinc-200 dark:border-zinc-700"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setImageFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-white text-xs shadow-md hover:bg-red-600 transition-colors cursor-pointer dark:bg-zinc-600 dark:hover:bg-red-500"
+                aria-label="Remove photo"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Submit */}
         <button
@@ -547,10 +716,18 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-6">
             {filteredSpots.map((spot) => (
               <div key={spot.id} className="group relative">
-                <SpotCard spot={spot} />
+                <SpotCard
+                  spot={spot}
+                  onClick={() =>
+                    spot.id !== undefined && setSelectedSpotId(spot.id)
+                  }
+                />
                 <button
                   type="button"
-                  onClick={() => spot.id !== undefined && deleteEntry(spot.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    spot.id !== undefined && deleteEntry(spot.id);
+                  }}
                   className="absolute right-2 top-2 hidden h-11 w-11 items-center justify-center rounded-full bg-zinc-100/90 text-zinc-400 transition-all hover:bg-red-100 hover:text-red-600 active:scale-95 active:bg-red-200 group-hover:inline-flex dark:bg-zinc-800/90 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400 dark:active:bg-red-900/50 cursor-pointer backdrop-blur-sm shadow-sm"
                   aria-label="Delete entry"
                 >
@@ -561,6 +738,14 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {/* ---- Detail modal ---- */}
+      {selectedSpotId !== null && (
+        <SpotDetailModal
+          spotId={selectedSpotId}
+          onClose={() => setSelectedSpotId(null)}
+        />
+      )}
     </div>
   );
 }
