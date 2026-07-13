@@ -97,7 +97,7 @@ export default function SpotDetailModal({
       <button
         type="button"
         onClick={onClose}
-        className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-zinc-900/70 text-white backdrop-blur-sm transition-colors hover:bg-zinc-700 active:bg-zinc-600 cursor-pointer"
+        className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-surface/90 text-text-primary backdrop-blur-sm transition-all hover:bg-bg active:scale-95 cursor-pointer border border-text-secondary/15"
         aria-label="Close"
       >
         <X className="h-5 w-5" />
@@ -106,13 +106,13 @@ export default function SpotDetailModal({
       {/* Image or placeholder */}
       {image === undefined ? (
         /* Still loading from IndexedDB */
-        <div className="text-sm text-zinc-400">Loading…</div>
+        <div className="text-sm font-mono text-text-secondary">Loading…</div>
       ) : objectUrl ? (
         <div className="flex flex-col items-center gap-3">
           <img
             src={objectUrl}
             alt="Full-resolution spot photo"
-            className="max-h-[85dvh] max-w-full rounded-lg object-contain shadow-2xl"
+            className="max-h-[85dvh] max-w-full rounded-lg object-contain shadow-2xl border border-text-secondary/15"
           />
 
           {/* Regenerate thumbnail — fixes old 150px thumbnails */}
@@ -121,7 +121,7 @@ export default function SpotDetailModal({
               type="button"
               onClick={handleRegenerate}
               disabled={regenerating}
-              className="inline-flex items-center gap-2 rounded-full bg-zinc-900/70 px-4 py-2 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:bg-zinc-700 active:bg-zinc-600 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-full bg-surface/90 px-4 py-2 text-xs font-medium text-text-primary backdrop-blur-sm transition-all hover:bg-bg active:scale-95 disabled:opacity-50 cursor-pointer border border-text-secondary/15"
             >
               <RefreshCw
                 className={`h-3.5 w-3.5 ${regenerating ? "animate-spin" : ""}`}
@@ -129,14 +129,14 @@ export default function SpotDetailModal({
               {regenerating ? "Regenerating…" : "Regenerate Thumbnail"}
             </button>
           ) : (
-            <p className="text-xs text-emerald-400">✓ Thumbnail updated</p>
+            <p className="text-xs font-mono text-accent">✓ Thumbnail updated</p>
           )}
         </div>
       ) : (
         /* No image stored for this spot */
-        <div className="flex flex-col items-center gap-3 text-zinc-500">
+        <div className="flex flex-col items-center gap-3 text-text-secondary">
           <ImageOff className="h-12 w-12" />
-          <p className="text-sm">No photo attached</p>
+          <p className="text-sm font-mono">No photo attached</p>
         </div>
       )}
     </div>

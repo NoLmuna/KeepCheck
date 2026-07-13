@@ -28,7 +28,7 @@ function ThemeToggle({
       type="button"
       onClick={onToggle}
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 active:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600 cursor-pointer"
+      className="flex h-11 w-11 items-center justify-center rounded-full border border-text-secondary/20 bg-surface text-text-secondary shadow-sm transition-all hover:bg-bg active:scale-95 cursor-pointer"
     >
       {dark ? (
         /* Sun icon */
@@ -91,11 +91,11 @@ function RatingPills({
           type="button"
           onClick={() => onChange(n)}
           className={`
-            h-11 w-11 rounded-full text-sm font-semibold
+            h-11 w-11 rounded-full text-sm font-bold font-mono
             transition-all duration-150 cursor-pointer
             ${n === value
-              ? "bg-black text-white shadow-lg scale-110 dark:bg-white dark:text-black"
-              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 active:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600"
+              ? "bg-accent text-white shadow-md scale-110"
+              : "bg-bg text-text-secondary hover:opacity-80 active:opacity-60"
             }
           `}
         >
@@ -124,14 +124,12 @@ function CategoryPills({
         const active = cat === value;
         const colors: Record<SpotCategory, { active: string; idle: string }> = {
           Cafe: {
-            active:
-              "bg-violet-600 text-white shadow-lg dark:bg-violet-400 dark:text-black",
-            idle: "bg-violet-50 text-violet-700 hover:bg-violet-100 active:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:hover:bg-violet-900/50 dark:active:bg-violet-900/70",
+            active: "bg-category-cafe text-white shadow-md",
+            idle: "bg-bg text-text-secondary hover:opacity-85",
           },
           Restaurant: {
-            active:
-              "bg-sky-600 text-white shadow-lg dark:bg-sky-400 dark:text-black",
-            idle: "bg-sky-50 text-sky-700 hover:bg-sky-100 active:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:hover:bg-sky-900/50 dark:active:bg-sky-900/70",
+            active: "bg-category-restaurant text-white shadow-md",
+            idle: "bg-bg text-text-secondary hover:opacity-85",
           },
         };
         return (
@@ -151,18 +149,19 @@ function CategoryPills({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Category badge (card display)                                      */
+/*  Category badge (card display - sticker treatment)                  */
 /* ------------------------------------------------------------------ */
-function CategoryBadge({ category }: { category: SpotCategory }) {
+function CategoryBadge({ category, seed = 0 }: { category: SpotCategory; seed?: number }) {
   const styles: Record<SpotCategory, string> = {
-    Cafe: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
-    Restaurant: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+    Cafe: "bg-category-cafe text-white",
+    Restaurant: "bg-category-restaurant text-white",
   };
   const label = category === "Cafe" ? "☕ Cafe" : "🍽️ Restaurant";
+  const rotation = seed % 2 === 0 ? "rotate-2" : "-rotate-2";
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${styles[category]}`}
+      className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase font-sans shadow-sm ${styles[category]} ${rotation}`}
     >
       {label}
     </span>
@@ -186,17 +185,15 @@ function SpotCard({
     day: "numeric",
   });
 
-  /** Colour mapped from 1–10 rating. */
-  const badgeColor =
-    spot.rating >= 8
-      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-      : spot.rating >= 5
-        ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-        : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300";
+  const seed = spot.id ?? 0;
+  const rotation = (seed * 7) % 17 - 8;
+  const categoryColorClass = (spot.category ?? "Restaurant") === "Cafe"
+    ? "border-category-cafe text-category-cafe"
+    : "border-category-restaurant text-category-restaurant";
 
   return (
     <div
-      className="rounded-xl border border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 h-full cursor-pointer overflow-hidden"
+      className="relative border-t-2 border-dashed border-text-secondary/30 border-x border-b border-text-secondary/15 bg-surface rounded-b-xl rounded-t-none shadow-sm transition-shadow hover:shadow-md h-full cursor-pointer flex flex-col"
       onClick={onClick}
       role="button"
       tabIndex={0}
@@ -207,9 +204,17 @@ function SpotCard({
         }
       }}
     >
+      {/* Stamp rating badge */}
+      <div
+        style={{ transform: `rotate(${rotation}deg)` }}
+        className={`absolute -top-3 -right-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border-2 bg-surface font-mono text-base font-bold shadow-md ${categoryColorClass}`}
+      >
+        {spot.rating}
+      </div>
+
       {/* Thumbnail */}
       {spot.thumbnail && (
-        <div className="relative h-48 w-full overflow-hidden bg-zinc-950">
+        <div className="relative h-48 w-full overflow-hidden bg-bg rounded-t-none">
           <img
             src={spot.thumbnail}
             alt={`Photo of ${spot.name}`}
@@ -220,28 +225,25 @@ function SpotCard({
       )}
 
       {/* Text content */}
-      <div className="p-4 md:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm md:text-base font-semibold text-zinc-900 dark:text-zinc-50">
-              {spot.name}
-            </h3>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2">
-              <p className="text-xs text-zinc-400">{formatted}</p>
-              <CategoryBadge category={spot.category ?? "Restaurant"} />
+      <div className="p-4 md:p-5 pr-14 md:pr-14 flex-1 flex flex-col justify-between">
+        <div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-sm md:text-base font-sans font-semibold text-text-primary">
+                {spot.name}
+              </h3>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <p className="text-xs text-text-secondary font-mono">{formatted}</p>
+                <CategoryBadge category={spot.category ?? "Restaurant"} seed={seed} />
+              </div>
             </div>
           </div>
-          <span
-            className={`inline-flex h-9 w-9 md:h-10 md:w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${badgeColor}`}
-          >
-            {spot.rating}
-          </span>
+          {spot.comment && (
+            <p className="mt-2.5 text-sm leading-relaxed text-text-secondary">
+              {spot.comment}
+            </p>
+          )}
         </div>
-        {spot.comment && (
-          <p className="mt-2.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-            {spot.comment}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -263,10 +265,11 @@ function PillButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-3.5 py-2.5 text-xs md:text-sm font-medium transition-colors cursor-pointer whitespace-nowrap min-h-[44px] ${active
-        ? "bg-black text-white dark:bg-white dark:text-black"
-        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 active:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:active:bg-zinc-600"
-        }`}
+      className={`rounded-lg px-3.5 py-2.5 text-xs md:text-sm font-medium transition-all cursor-pointer whitespace-nowrap min-h-[44px] ${
+        active
+          ? "bg-accent text-white shadow-sm"
+          : "bg-surface text-text-secondary border border-text-secondary/15 hover:opacity-85 active:scale-95"
+      }`}
     >
       {label}
     </button>
@@ -476,10 +479,10 @@ export default function Home() {
           <ThemeToggle dark={dark} onToggle={() => setDark((d) => !d)} />
         </div>
 
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Keep<span className="text-emerald-600 dark:text-emerald-400">Check</span>
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold tracking-tight text-text-primary">
+          Keep<span className="text-accent">Check</span>
         </h1>
-        <p className="mt-1 text-sm sm:text-base text-zinc-500 dark:text-zinc-400">
+        <p className="mt-1 text-sm sm:text-base text-text-secondary">
           Track &amp; rate every café and restaurant.
         </p>
       </header>
@@ -487,12 +490,12 @@ export default function Home() {
       {/* ---- Form ---- */}
       <form
         onSubmit={handleSubmit}
-        className="mx-auto w-full max-w-lg mb-8 sm:mb-10 rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+        className="mx-auto w-full max-w-lg mb-8 sm:mb-10 rounded-2xl border border-text-secondary/15 bg-surface p-4 sm:p-5 shadow-sm"
       >
         {/* Name */}
         <label
           htmlFor="spot-name"
-          className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400"
+          className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-text-secondary"
         >
           Business / Spot Name
         </label>
@@ -503,11 +506,11 @@ export default function Home() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Starbucks, Samgyupsal…"
-          className="mb-5 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm sm:text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
+          className="mb-5 w-full rounded-lg border border-text-secondary/20 bg-bg px-3 py-3 text-sm sm:text-base text-text-primary outline-none transition-colors placeholder:text-text-secondary/40 focus:border-accent focus:ring-1 focus:ring-accent"
         />
 
         {/* Category */}
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
           Category
         </p>
         <div className="mb-5">
@@ -515,9 +518,9 @@ export default function Home() {
         </div>
 
         {/* Rating */}
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
           Rating&ensp;
-          <span className="normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
+          <span className="normal-case tracking-normal text-text-secondary/60">
             ({rating} / 10)
           </span>
         </p>
@@ -528,7 +531,7 @@ export default function Home() {
         {/* Comment */}
         <label
           htmlFor="spot-comment"
-          className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400"
+          className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-text-secondary"
         >
           Comment
         </label>
@@ -538,13 +541,13 @@ export default function Home() {
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="Notes about the food, drink, vibe, or service…"
-          className="mb-5 w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm sm:text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600"
+          className="mb-5 w-full resize-none rounded-lg border border-text-secondary/20 bg-bg px-3 py-3 text-sm sm:text-base text-text-primary outline-none transition-colors placeholder:text-text-secondary/40 focus:border-accent focus:ring-1 focus:ring-accent"
         />
 
         {/* Photo upload */}
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
           Photo{" "}
-          <span className="normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
+          <span className="normal-case tracking-normal text-text-secondary/60">
             (optional)
           </span>
         </p>
@@ -553,7 +556,7 @@ export default function Home() {
           {/* Custom file button */}
           <label
             htmlFor="spot-photo"
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 active:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600 cursor-pointer min-h-[44px]"
+            className="inline-flex items-center gap-2 rounded-lg border border-text-secondary/20 bg-bg px-4 py-3 text-sm font-medium text-text-secondary transition-all hover:opacity-85 cursor-pointer min-h-[44px]"
           >
             <Camera className="h-4 w-4" />
             {imageFile ? "Change Photo" : "Take or Choose Photo"}
@@ -563,7 +566,6 @@ export default function Home() {
             id="spot-photo"
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
             className="sr-only"
           />
@@ -574,7 +576,7 @@ export default function Home() {
               <img
                 src={previewUrl}
                 alt="Selected photo preview"
-                className="h-24 w-24 rounded-lg object-cover border border-zinc-200 dark:border-zinc-700"
+                className="h-24 w-24 rounded-lg object-cover border border-text-secondary/20"
               />
               <button
                 type="button"
@@ -582,7 +584,7 @@ export default function Home() {
                   setImageFile(null);
                   if (fileInputRef.current) fileInputRef.current.value = "";
                 }}
-                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-white text-xs shadow-md hover:bg-red-600 transition-colors cursor-pointer dark:bg-zinc-600 dark:hover:bg-red-500"
+                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-white text-xs shadow-md hover:opacity-90 transition-colors cursor-pointer"
                 aria-label="Remove photo"
               >
                 ✕
@@ -595,7 +597,7 @@ export default function Home() {
         <button
           type="submit"
           disabled={saving || !name.trim()}
-          className="w-full rounded-lg bg-black py-3 text-sm sm:text-base font-semibold text-white transition-opacity hover:opacity-90 active:opacity-80 disabled:opacity-40 dark:bg-white dark:text-black cursor-pointer min-h-[44px]"
+          className="w-full rounded-lg bg-accent py-3 text-sm sm:text-base font-semibold text-white transition-opacity hover:opacity-90 active:opacity-80 disabled:opacity-40 cursor-pointer min-h-[44px]"
         >
           {saving ? "Saving…" : "Log Spot"}
         </button>
@@ -605,10 +607,10 @@ export default function Home() {
       <section className="flex flex-1 flex-col">
         {/* Title + Export */}
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base sm:text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+          <h2 className="text-base sm:text-lg font-serif font-semibold text-text-primary">
             Your Logs
             {spots && spots.length > 0 && (
-              <span className="ml-2 text-sm font-normal text-zinc-400">
+              <span className="ml-2 text-sm font-mono font-normal text-text-secondary">
                 ({filteredSpots ? filteredSpots.length : spots.length})
               </span>
             )}
@@ -618,7 +620,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleExport}
-              className="rounded-lg border border-zinc-200 bg-white px-3.5 py-2.5 text-xs sm:text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 active:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:active:bg-zinc-600 cursor-pointer min-h-[44px]"
+              className="rounded-lg border border-text-secondary/20 bg-surface px-3.5 py-2.5 text-xs sm:text-sm font-medium text-text-secondary transition-all hover:bg-bg active:scale-95 cursor-pointer min-h-[44px]"
             >
               Export Backup
             </button>
@@ -631,7 +633,7 @@ export default function Home() {
             {/* Search */}
             <div className="relative">
               <svg
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary/50"
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
                 fill="none"
@@ -649,7 +651,7 @@ export default function Home() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search spots or comments…"
-                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 py-3 pl-10 pr-3 text-sm sm:text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600 min-h-[44px]"
+                className="w-full rounded-lg border border-text-secondary/20 bg-surface py-3 pl-10 pr-3 text-sm sm:text-base text-text-primary outline-none transition-colors placeholder:text-text-secondary/40 focus:border-accent focus:ring-1 focus:ring-accent min-h-[44px]"
               />
             </div>
 
@@ -673,7 +675,7 @@ export default function Home() {
               />
 
               {/* Divider */}
-              <div className="mx-1 h-5 w-px shrink-0 bg-zinc-200 dark:bg-zinc-700" />
+              <div className="mx-1 h-5 w-px shrink-0 bg-text-secondary/20" />
 
               {/* Sort */}
               <PillButton
@@ -697,23 +699,23 @@ export default function Home() {
 
         {/* ---- Feed content ---- */}
         {spots === undefined && (
-          <p className="py-12 text-center text-sm text-zinc-400">Loading…</p>
+          <p className="py-12 text-center text-sm font-mono text-text-secondary animate-pulse">Loading…</p>
         )}
 
         {spots && spots.length === 0 && (
-          <p className="py-12 text-center text-sm text-zinc-400">
+          <p className="py-12 text-center text-sm text-text-secondary">
             No spots logged yet — add your first one above!
           </p>
         )}
 
         {filteredSpots && filteredSpots.length === 0 && spots && spots.length > 0 && (
-          <p className="py-12 text-center text-sm text-zinc-400">
+          <p className="py-12 text-center text-sm text-text-secondary">
             No logs match your current filters.
           </p>
         )}
 
         {filteredSpots && filteredSpots.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 pb-6 pt-3">
             {filteredSpots.map((spot) => (
               <div key={spot.id} className="group relative">
                 <SpotCard
@@ -728,7 +730,7 @@ export default function Home() {
                     e.stopPropagation();
                     spot.id !== undefined && deleteEntry(spot.id);
                   }}
-                  className="absolute right-2 top-2 hidden h-11 w-11 items-center justify-center rounded-full bg-zinc-100/90 text-zinc-400 transition-all hover:bg-red-100 hover:text-red-600 active:scale-95 active:bg-red-200 group-hover:inline-flex dark:bg-zinc-800/90 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400 dark:active:bg-red-900/50 cursor-pointer backdrop-blur-sm shadow-sm"
+                  className="absolute right-3 bottom-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-text-secondary/15 text-text-secondary/70 opacity-60 transition-all hover:opacity-100 hover:bg-red-50 hover:text-red-600 active:scale-95 active:opacity-100 active:bg-red-100 dark:bg-surface dark:text-text-secondary/70 dark:hover:bg-red-950/30 dark:hover:text-red-400 cursor-pointer backdrop-blur-sm shadow-sm z-10"
                   aria-label="Delete entry"
                 >
                   <Trash2 className="h-4 w-4" />

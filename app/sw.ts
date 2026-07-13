@@ -14,6 +14,18 @@ const serwist = new Serwist({
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: defaultCache,
+  // Serve the precached /offline page when a NetworkFirst handler fails
+  // for a navigation request (e.g. deep link the user has never visited).
+  fallbacks: {
+    entries: [
+      {
+        url: "/offline",
+        matcher({ request }) {
+          return request.destination === "document";
+        },
+      },
+    ],
+  },
 });
 
 // Register all Serwist-managed listeners (install, activate, fetch, etc.)
