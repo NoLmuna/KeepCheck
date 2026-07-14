@@ -277,16 +277,36 @@ function PillButton({
 function UserProfile({
   photoURL,
   displayName,
+  email,
   onSignOut,
 }: {
   photoURL: string | null;
   displayName: string | null;
+  email: string | null;
   onSignOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleOutsideClick(event: MouseEvent | TouchEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("touchstart", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [open]);
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative z-50">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -303,27 +323,35 @@ function UserProfile({
 
       {/* Dropdown */}
       {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-14 z-50 w-52 neu-raised p-3 animate-page-enter">
-            <p className="truncate text-sm font-semibold text-text-primary mb-1">
+        <div className="absolute right-0 top-14 w-60 rounded-2xl p-4 bg-bg/95 backdrop-blur-md border border-text-secondary/10 shadow-neu-raised animate-page-enter z-50">
+          <div className="flex flex-col gap-0.5 px-1 pb-2">
+            <p className="truncate text-sm font-bold text-text-primary">
               {displayName ?? "User"}
             </p>
-            <hr className="border-text-secondary/15 my-2" />
-            <button
-              type="button"
-              onClick={() => { setOpen(false); onSignOut(); }}
-              className="neu-button flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-text-secondary hover:text-red-500 cursor-pointer"
-            >
-              <LogOut className="h-4 w-4" />
-              Sign out
-            </button>
+            {email && (
+              <p className="truncate text-[11px] text-text-secondary/80 font-medium">
+                {email}
+              </p>
+            )}
           </div>
-        </>
+          <hr className="border-text-secondary/10 my-1" />
+          <button
+            type="button"
+            onClick={() => {
+              console.log("[KeepCheck UI] Sign-out button clicked!");
+              onSignOut();
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-500 transition-all duration-300 hover:bg-red-500 hover:text-white hover:border-transparent active:scale-[0.97] cursor-pointer"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Sign out</span>
+          </button>
+        </div>
       )}
     </div>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /*  Main page                                                          */
@@ -452,8 +480,8 @@ function HomePage() {
     return unsubscribe;
   }, [user, syncSpots]);
 
-  /* -- Search, Sort & Category filter -- */
   const [search, setSearch] = useState("");
+  const prevSearchRef = useRef("");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [catFilter, setCatFilter] = useState<CategoryFilter>("All");
 
@@ -585,25 +613,30 @@ function HomePage() {
     return () => ctx.revert();
   }, [user, spots]);
 
-  // 2. Stagger feed items whenever spots or search query updates
+  // 2. Stagger feed items whenever spots or filters update (skips animation during active search typing to prevent lag)
   useEffect(() => {
+    const isSearching = search !== prevSearchRef.current;
+    prevSearchRef.current = search;
+
+    if (isSearching) return; // skip staggers on search changes to keep typing smooth
+
     const elements = document.querySelectorAll(".gsap-list-item");
     if (elements.length > 0) {
       gsap.fromTo(
         elements,
-        { opacity: 0, y: 20, scale: 0.98 },
+        { opacity: 0, y: 15, scale: 0.98 },
         {
           opacity: 1,
           y: 0,
           scale: 1,
-          duration: 0.45,
-          stagger: 0.04,
+          duration: 0.4,
+          stagger: 0.03,
           ease: "power2.out",
           overwrite: "auto"
         }
       );
     }
-  }, [filteredSpots]);
+  }, [filteredSpots, search]);
 
   // 3. Modal Form slide in/out animations
   const openFormModal = () => {
@@ -839,20 +872,7 @@ function HomePage() {
     }
   }
 
-  async function handleExport() {
-    if (!user) return;
-    const allSpots = await db.spots.where("userId").equals(user.uid).toArray();
-    const json = JSON.stringify(allSpots, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "keepcheck-spots-backup.json";
-    a.click();
-
-    URL.revokeObjectURL(url);
-  }
 
   async function deleteEntry(id: number) {
     try {
@@ -923,7 +943,7 @@ function HomePage() {
       </div>
 
       {/* ---- Header ---- */}
-      <header className="relative mb-6 sm:mb-8 gsap-header gsap-reveal">
+      <header className="relative z-40 mb-6 sm:mb-8 gsap-header gsap-reveal">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold tracking-tight text-text-primary">
@@ -953,6 +973,7 @@ function HomePage() {
               <UserProfile
                 photoURL={user.photoURL}
                 displayName={user.displayName}
+                email={user.email}
                 onSignOut={signOut}
               />
             )}
@@ -1074,15 +1095,6 @@ function HomePage() {
           <h2 className="text-base sm:text-lg font-serif font-semibold text-text-primary">
             Activity Feed
           </h2>
-          {spots && spots.length > 0 && (
-            <button
-              type="button"
-              onClick={handleExport}
-              className="neu-button rounded-xl px-3 py-1.5 text-xs font-semibold text-text-secondary cursor-pointer min-h-[34px] hover:text-text-primary"
-            >
-              Export Backup
-            </button>
-          )}
         </div>
 
         {spots && spots.length > 0 ? (

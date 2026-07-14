@@ -16,10 +16,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
+    console.log("[KeepCheck AuthGuard] State check - Loading:", loading, "User:", user ? user.email : "null");
     if (!loading && !user) {
-      router.replace("/login");
+      console.log("[KeepCheck AuthGuard] Redirecting to /login via window.location");
+      window.location.href = "/login";
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   if (loading) {
     return (

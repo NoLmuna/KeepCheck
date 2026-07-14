@@ -123,7 +123,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Sign out.
   const signOut = useCallback(async () => {
-    await firebaseSignOut(getFirebaseAuth());
+    console.log("[KeepCheck AuthContext] signOut called");
+    // Trigger Firebase sign-out in the background.
+    firebaseSignOut(getFirebaseAuth())
+      .then(() => {
+        console.log("[KeepCheck AuthContext] Firebase signOut completed successfully");
+      })
+      .catch((error) => {
+        console.error("[KeepCheck AuthContext] Background Firebase signOut error:", error);
+      });
+    // Immediately clear local state for instant redirect.
+    console.log("[KeepCheck AuthContext] Setting user to null");
     setUser(null);
   }, []);
 
