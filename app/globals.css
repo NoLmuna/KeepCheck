@@ -2,48 +2,336 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ================================================================== */
+/*  NEUMORPHISM DESIGN SYSTEM                                          */
+/* ================================================================== */
+
 :root {
-  --bg: #EFE7D8;
-  --surface: #FBF6EC;
+  /* Fonts family variables */
+  --font-fraunces: "Fraunces", Georgia, serif;
+  --font-work-sans: "Work Sans", system-ui, -apple-system, sans-serif;
+  --font-space-mono: "Space Mono", Consolas, Monaco, monospace;
+
+  /* Base palette — warm clay / parchment */
+  --bg: #ddd5c8;
+  --surface: #ddd5c8;
   --text-primary: #2C2018;
   --text-secondary: #6B5D4F;
-  --accent: #A6572B;
+  --accent: #c06830;
+  --accent-glow: #d68a4c;
   --category-cafe: #8B6F9E;
   --category-restaurant: #3E6E77;
+
+  /* Neumorphic shadow pairs (light) */
+  --neu-light: #efe7d8;
+  --neu-dark: #c5bdb0;
+  --neu-shadow-raised: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+  --neu-shadow-inset: inset 4px 4px 10px var(--neu-dark), inset -4px -4px 10px var(--neu-light);
+  --neu-shadow-button: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
+  --neu-shadow-button-active: inset 3px 3px 8px var(--neu-dark), inset -3px -3px 8px var(--neu-light);
+  --neu-shadow-subtle: 3px 3px 8px var(--neu-dark), -3px -3px 8px var(--neu-light);
 }
 
 .dark {
-  --bg: #1E1712;
-  --surface: #2A2119;
+  --bg: #1a1410;
+  --surface: #1a1410;
   --text-primary: #F0E6D6;
   --text-secondary: #B8A890;
   --accent: #D68A4C;
-  --category-cafe: #7C5A3E;
-  --category-restaurant: #3E5A5E;
+  --accent-glow: #e9a868;
+  --category-cafe: #9b7fb0;
+  --category-restaurant: #4e8e97;
+
+  /* Neumorphic shadow pairs (dark) */
+  --neu-light: #231c16;
+  --neu-dark: #110e0b;
+  --neu-shadow-raised: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+  --neu-shadow-inset: inset 4px 4px 10px var(--neu-dark), inset -4px -4px 10px var(--neu-light);
+  --neu-shadow-button: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
+  --neu-shadow-button-active: inset 3px 3px 8px var(--neu-dark), inset -3px -3px 8px var(--neu-light);
+  --neu-shadow-subtle: 3px 3px 8px var(--neu-dark), -3px -3px 8px var(--neu-light);
 }
 
+/* Tailwind theme bindings */
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--text-primary);
+  --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-accent: var(--accent);
+  --color-accent-glow: var(--accent-glow);
   --color-category-cafe: var(--category-cafe);
   --color-category-restaurant: var(--category-restaurant);
-  
+  --color-neu-light: var(--neu-light);
+  --color-neu-dark: var(--neu-dark);
+
+  --shadow-neu-raised: var(--neu-shadow-raised);
+  --shadow-neu-inset: var(--neu-shadow-inset);
+  --shadow-neu-button: var(--neu-shadow-button);
+  --shadow-neu-button-active: var(--neu-shadow-button-active);
+  --shadow-neu-subtle: var(--neu-shadow-subtle);
+
   --font-serif: var(--font-fraunces);
   --font-sans: var(--font-work-sans);
   --font-mono: var(--font-space-mono);
 }
 
+/* ================================================================== */
+/*  BASE                                                               */
+/* ================================================================== */
+
 body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family: var(--font-work-sans), sans-serif;
+  font-family: var(--font-work-sans), system-ui, sans-serif;
 }
 
-/* Hide scrollbar on horizontally-scrollable pill rows */
+/* ================================================================== */
+/*  NEUMORPHIC UTILITY CLASSES                                         */
+/* ================================================================== */
+
+.neu-raised {
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-raised);
+  border-radius: 20px;
+}
+
+.neu-inset {
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-inset);
+  border-radius: 16px;
+}
+
+.neu-button {
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-button);
+  border-radius: 14px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neu-button:hover {
+  box-shadow: var(--neu-shadow-raised);
+  transform: translateY(-1px);
+}
+
+.neu-button:active,
+.neu-button.active {
+  box-shadow: var(--neu-shadow-button-active);
+  transform: translateY(0);
+}
+
+.neu-input {
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-inset);
+  border: none;
+  border-radius: 14px;
+  padding: 14px 16px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  outline: none;
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.neu-input:focus {
+  box-shadow: inset 5px 5px 12px var(--neu-dark), inset -5px -5px 12px var(--neu-light), 0 0 0 2px var(--accent);
+}
+
+.neu-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.neu-card {
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-raised);
+  border-radius: 24px;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neu-card:hover {
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
+  transform: translateY(-3px);
+}
+
+.neu-card:active {
+  box-shadow: var(--neu-shadow-button-active);
+  transform: translateY(0);
+}
+
+/* ================================================================== */
+/*  GOOEY ANIMATIONS                                                   */
+/* ================================================================== */
+
+/* Blob floating animations for background */
+@keyframes blob-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(60px, -40px) scale(1.15); }
+  50% { transform: translate(20px, 50px) scale(0.9); }
+  75% { transform: translate(-30px, 20px) scale(1.08); }
+}
+
+@keyframes blob-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-50px, 30px) scale(1.1); }
+  50% { transform: translate(-20px, -60px) scale(0.95); }
+  75% { transform: translate(40px, -20px) scale(1.12); }
+}
+
+@keyframes blob-float-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, 40px) scale(1.2); }
+  66% { transform: translate(-40px, -30px) scale(0.85); }
+}
+
+.animate-blob-1 {
+  animation: blob-float-1 14s ease-in-out infinite;
+}
+
+.animate-blob-2 {
+  animation: blob-float-2 18s ease-in-out infinite;
+  animation-delay: -4s;
+}
+
+.animate-blob-3 {
+  animation: blob-float-3 12s ease-in-out infinite;
+  animation-delay: -7s;
+}
+
+/* Page entrance */
+@keyframes page-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.animate-page-enter {
+  animation: page-enter 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Card stagger entrance */
+@keyframes card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-card-enter {
+  animation: card-enter 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Gooey press effect */
+@keyframes gooey-press {
+  0% { transform: scale(1); filter: blur(0); }
+  40% { transform: scale(0.93); filter: blur(1px); }
+  60% { transform: scale(1.03); filter: blur(0.5px); }
+  100% { transform: scale(1); filter: blur(0); }
+}
+
+.animate-gooey-press {
+  animation: gooey-press 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Pulse glow for accent elements */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: var(--neu-shadow-raised), 0 0 0 0 rgba(var(--accent), 0);
+  }
+  50% {
+    box-shadow: var(--neu-shadow-raised), 0 0 20px 4px var(--accent-glow);
+  }
+}
+
+/* Soft floating */
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.animate-float {
+  animation: float-soft 3.5s ease-in-out infinite;
+}
+
+/* Gooey modal entrance */
+@keyframes modal-gooey-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+    filter: blur(10px);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+.animate-modal-enter {
+  animation: modal-gooey-in 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Backdrop fade */
+@keyframes backdrop-fade {
+  0% { opacity: 0; backdrop-filter: blur(0); }
+  100% { opacity: 1; backdrop-filter: blur(8px); }
+}
+
+.animate-backdrop {
+  animation: backdrop-fade 0.3s ease-out both;
+}
+
+/* Delete melt */
+@keyframes melt-away {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8) translateY(20px);
+    filter: blur(6px);
+  }
+}
+
+.animate-melt {
+  animation: melt-away 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Gooey ripple on tap */
+@keyframes ripple-gooey {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* ================================================================== */
+/*  SCROLLBAR                                                          */
+/* ================================================================== */
+
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -51,3 +339,209 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* Custom themed scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 3px;
+  opacity: 0.3;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* ================================================================== */
+/*  UTILITY OVERRIDES                                                  */
+/* ================================================================== */
+
+/* Smooth all transitions globally */
+*, *::before, *::after {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Selection color */
+::selection {
+  background: var(--accent);
+  color: white;
+}
+
+/* ================================================================== */
+/*  ADDITIONAL NEW STYLES FOR Restructured LAYOUT & GOOEY EFFECTS       */
+/* ================================================================== */
+
+/* 1. Carousel component container & behaviors */
+.carousel-container {
+  display: flex;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.carousel-card {
+  scroll-snap-align: start;
+  flex: 0 0 280px;
+  max-width: 280px;
+}
+
+@media (min-width: 640px) {
+  .carousel-card {
+    flex: 0 0 340px;
+    max-width: 340px;
+  }
+}
+
+/* Edge fading gradient mask for carousel */
+.carousel-mask {
+  mask-image: linear-gradient(to right, transparent, white 20px, white calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, white 20px, white calc(100% - 20px), transparent);
+}
+
+/* 2. Gooey tab selectors styling */
+.gooey-tab-container {
+  position: relative;
+  display: flex;
+  padding: 6px;
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-inset);
+  border-radius: 20px;
+}
+
+/* High-contrast container for gooey filter */
+.gooey-filter-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  filter: url(#gooey-medium);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.gooey-filter-blob {
+  position: absolute;
+  height: calc(100% - 12px);
+  top: 6px;
+  background: var(--accent);
+  border-radius: 16px;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Rating scale selection gooey blobs */
+.rating-bar-container {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px;
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-inset);
+  border-radius: 24px;
+}
+
+.rating-filter-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  filter: url(#gooey-rating);
+  border-radius: 24px;
+}
+
+.rating-blob {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  background: var(--accent);
+  border-radius: 50%;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Photo upload dropzone states */
+.upload-dropzone {
+  border: 2px dashed var(--text-secondary);
+  border-radius: 20px;
+  transition: all 0.3s ease;
+  background: var(--bg);
+  box-shadow: var(--neu-shadow-subtle);
+}
+
+.upload-dropzone:hover {
+  border-color: var(--accent);
+  box-shadow: var(--neu-shadow-raised);
+}
+
+.upload-dropzone.active-drop {
+  border-color: var(--accent);
+  background: rgba(var(--accent-glow), 0.05);
+  box-shadow: var(--neu-shadow-inset);
+}
+
+/* Liquid scale up for images */
+@keyframes liquid-pop {
+  0% { transform: scale(0.6) rotate(-5deg); filter: blur(4px); opacity: 0; }
+  60% { transform: scale(1.05) rotate(2deg); filter: blur(0); opacity: 0.9; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+.animate-liquid-pop {
+  animation: liquid-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+/* Quick tag anims */
+@keyframes tag-appear {
+  0% { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.tag-anim {
+  animation: tag-appear 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Pulse keyframes for active upload */
+@keyframes pulse-border {
+  0%, 100% { border-color: var(--text-secondary); }
+  50% { border-color: var(--accent); }
+}
+
+.animate-pulse-border {
+  animation: pulse-border 2s infinite ease-in-out;
+}
+
+/* Success save animation */
+@keyframes checkmark-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-success-pop {
+  animation: checkmark-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+/* Bottom sheet slide-up animation for mobile */
+@keyframes sheet-slide-up {
+  0% {
+    transform: translateY(100%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.animate-sheet-enter {
+  animation: sheet-slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* GSAP Initial States to avoid FOUC */
+.gsap-reveal {
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+
+

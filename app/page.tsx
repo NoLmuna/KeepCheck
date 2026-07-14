@@ -1,11 +1,22 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type FoodSpotLog, type SpotCategory } from "./db";
 import { makeThumbnail, compressToBlob } from "@/utils/image";
 import SpotDetailModal from "@/components/SpotDetailModal";
-import { Trash2, Camera } from "lucide-react";
+import AuthGuard from "@/components/AuthGuard";
+import { useAuth } from "@/lib/auth";
+import {
+  generateSpotId,
+  writeSpotToFirestore,
+  deleteSpotFromFirestore,
+  addImageToFirestore,
+  deleteImagesForSpotFromFirestore,
+  subscribeToSpots,
+} from "@/lib/firestore";
+import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X } from "lucide-react";
+import { gsap } from "gsap";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -28,44 +39,18 @@ function ThemeToggle({
       type="button"
       onClick={onToggle}
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      className="flex h-11 w-11 items-center justify-center rounded-full border border-text-secondary/20 bg-surface text-text-secondary shadow-sm transition-all hover:bg-bg active:scale-95 cursor-pointer"
+      className="neu-button flex h-11 w-11 items-center justify-center rounded-full text-text-secondary cursor-pointer"
     >
       {dark ? (
-        /* Sun icon */
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2" />
-          <path d="M12 20v2" />
-          <path d="m4.93 4.93 1.41 1.41" />
-          <path d="m17.66 17.66 1.41 1.41" />
-          <path d="M2 12h2" />
-          <path d="M20 12h2" />
-          <path d="m6.34 17.66-1.41 1.41" />
-          <path d="m19.07 4.93-1.41 1.41" />
+          <path d="M12 2v2" /><path d="M12 20v2" />
+          <path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" />
+          <path d="M2 12h2" /><path d="M20 12h2" />
+          <path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />
         </svg>
       ) : (
-        /* Moon icon */
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
         </svg>
       )}
@@ -74,7 +59,54 @@ function ThemeToggle({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Rating pill component                                              */
+/*  Gooey Category Selector Component                                  */
+/* ------------------------------------------------------------------ */
+function CategoryPills({
+  value,
+  onChange,
+}: {
+  value: SpotCategory;
+  onChange: (c: SpotCategory) => void;
+}) {
+  return (
+    <div className="relative w-full overflow-hidden p-1.5 bg-bg/50 shadow-neu-inset rounded-2xl flex min-h-[50px] items-center">
+      {/* Gooey filter layer for background */}
+      <div className="absolute inset-0 pointer-events-none rounded-2xl overflow-hidden" style={{ filter: "url(#gooey-medium)" }}>
+        <div
+          className="absolute h-9 bg-accent rounded-xl transition-all duration-300 ease-out"
+          style={{
+            width: "calc(50% - 10px)",
+            left: value === "Cafe" ? "6px" : "calc(50% + 4px)",
+            top: "7px",
+          }}
+        />
+      </div>
+
+      {/* Actual buttons (crisp text layer above) */}
+      <button
+        type="button"
+        onClick={() => onChange("Cafe")}
+        className={`relative z-10 w-1/2 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 min-h-[38px] cursor-pointer ${
+          value === "Cafe" ? "text-white font-bold" : "text-text-secondary hover:text-text-primary"
+        }`}
+      >
+        ☕ Cafe
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("Restaurant")}
+        className={`relative z-10 w-1/2 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 min-h-[38px] cursor-pointer ${
+          value === "Restaurant" ? "text-white font-bold" : "text-text-secondary hover:text-text-primary"
+        }`}
+      >
+        🍽️ Restaurant
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Gooey Rating Selector Component                                    */
 /* ------------------------------------------------------------------ */
 function RatingPills({
   value,
@@ -84,63 +116,33 @@ function RatingPills({
   onChange: (n: number) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-        <button
-          key={n}
-          type="button"
-          onClick={() => onChange(n)}
-          className={`
-            h-11 w-11 rounded-full text-sm font-bold font-mono
-            transition-all duration-150 cursor-pointer
-            ${n === value
-              ? "bg-accent text-white shadow-md scale-110"
-              : "bg-bg text-text-secondary hover:opacity-80 active:opacity-60"
-            }
-          `}
-        >
-          {n}
-        </button>
-      ))}
-    </div>
-  );
-}
+    <div className="relative w-full p-1.5 bg-bg/50 shadow-neu-inset rounded-2xl flex justify-between items-center min-h-[52px]">
+      {/* Gooey filter layer */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl" style={{ filter: "url(#gooey-rating)" }}>
+        <div
+          className="absolute h-9 w-9 rounded-full bg-accent transition-all duration-300 ease-out"
+          style={{
+            left: `calc(6px + ${(value - 1)} * (100% - 48px) / 9)`,
+            top: "8px",
+          }}
+        />
+      </div>
 
-/* ------------------------------------------------------------------ */
-/*  Category pill selector (form)                                      */
-/* ------------------------------------------------------------------ */
-const CATEGORIES: SpotCategory[] = ["Cafe", "Restaurant"];
-
-function CategoryPills({
-  value,
-  onChange,
-}: {
-  value: SpotCategory;
-  onChange: (c: SpotCategory) => void;
-}) {
-  return (
-    <div className="flex gap-2">
-      {CATEGORIES.map((cat) => {
-        const active = cat === value;
-        const colors: Record<SpotCategory, { active: string; idle: string }> = {
-          Cafe: {
-            active: "bg-category-cafe text-white shadow-md",
-            idle: "bg-bg text-text-secondary hover:opacity-85",
-          },
-          Restaurant: {
-            active: "bg-category-restaurant text-white shadow-md",
-            idle: "bg-bg text-text-secondary hover:opacity-85",
-          },
-        };
+      {/* Numbers */}
+      {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
+        const active = n === value;
         return (
           <button
-            key={cat}
+            key={n}
             type="button"
-            onClick={() => onChange(cat)}
-            className={`rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-150 cursor-pointer min-h-[44px] ${active ? colors[cat].active : colors[cat].idle
-              }`}
+            onClick={() => onChange(n)}
+            className={`
+              relative z-10 h-9 w-9 rounded-full text-xs sm:text-sm font-bold font-mono
+              transition-colors duration-300 cursor-pointer flex items-center justify-center
+              ${active ? "text-white font-bold scale-105" : "text-text-secondary hover:text-text-primary"}
+            `}
           >
-            {cat === "Cafe" ? "☕ Cafe" : "🍽️ Restaurant"}
+            {n}
           </button>
         );
       })}
@@ -149,19 +151,15 @@ function CategoryPills({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Category badge (card display - sticker treatment)                  */
+/*  Category badge (card display)                                      */
 /* ------------------------------------------------------------------ */
-function CategoryBadge({ category, seed = 0 }: { category: SpotCategory; seed?: number }) {
-  const styles: Record<SpotCategory, string> = {
-    Cafe: "bg-category-cafe text-white",
-    Restaurant: "bg-category-restaurant text-white",
-  };
+function CategoryBadge({ category }: { category: SpotCategory }) {
+  const bg = category === "Cafe" ? "bg-category-cafe" : "bg-category-restaurant";
   const label = category === "Cafe" ? "☕ Cafe" : "🍽️ Restaurant";
-  const rotation = seed % 2 === 0 ? "rotate-2" : "-rotate-2";
 
   return (
     <span
-      className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase font-sans shadow-sm ${styles[category]} ${rotation}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase text-white ${bg}`}
     >
       {label}
     </span>
@@ -169,14 +167,16 @@ function CategoryBadge({ category, seed = 0 }: { category: SpotCategory; seed?: 
 }
 
 /* ------------------------------------------------------------------ */
-/*  Spot card (feed entry)                                             */
+/*  Spot card (neumorphic)                                             */
 /* ------------------------------------------------------------------ */
 function SpotCard({
   spot,
   onClick,
+  index,
 }: {
   spot: FoodSpotLog;
   onClick: () => void;
+  index: number;
 }) {
   const date = new Date(spot.createdAt);
   const formatted = date.toLocaleDateString(undefined, {
@@ -185,15 +185,9 @@ function SpotCard({
     day: "numeric",
   });
 
-  const seed = spot.id ?? 0;
-  const rotation = (seed * 7) % 17 - 8;
-  const categoryColorClass = (spot.category ?? "Restaurant") === "Cafe"
-    ? "border-category-cafe text-category-cafe"
-    : "border-category-restaurant text-category-restaurant";
-
   return (
     <div
-      className="relative border-t-2 border-dashed border-text-secondary/30 border-x border-b border-text-secondary/15 bg-surface rounded-b-xl rounded-t-none shadow-sm transition-shadow hover:shadow-md h-full cursor-pointer flex flex-col"
+      className="neu-card overflow-hidden cursor-pointer flex flex-col h-full"
       onClick={onClick}
       role="button"
       tabIndex={0}
@@ -204,42 +198,43 @@ function SpotCard({
         }
       }}
     >
-      {/* Stamp rating badge */}
-      <div
-        style={{ transform: `rotate(${rotation}deg)` }}
-        className={`absolute -top-3 -right-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border-2 bg-surface font-mono text-base font-bold shadow-md ${categoryColorClass}`}
-      >
-        {spot.rating}
-      </div>
-
       {/* Thumbnail */}
-      {spot.thumbnail && (
-        <div className="relative h-48 w-full overflow-hidden bg-bg rounded-t-none">
+      {spot.thumbnail ? (
+        <div className="relative h-44 w-full overflow-hidden">
           <img
             src={spot.thumbnail}
             alt={`Photo of ${spot.name}`}
             loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
           />
+          {/* Rating badge overlay */}
+          <div className="absolute top-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg/90 shadow-neu-subtle font-mono text-sm font-bold text-accent backdrop-blur-sm">
+            {spot.rating}
+          </div>
+        </div>
+      ) : (
+        <div className="h-28 w-full bg-bg/40 flex items-center justify-center shadow-neu-inset relative">
+          <span className="text-3xl opacity-45">{spot.category === "Cafe" ? "☕" : "🍽️"}</span>
+          <div className="absolute top-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-bg shadow-neu-subtle font-mono text-xs font-bold text-accent">
+            {spot.rating}
+          </div>
         </div>
       )}
 
       {/* Text content */}
-      <div className="p-4 md:p-5 pr-14 md:pr-14 flex-1 flex flex-col justify-between">
+      <div className="p-4 flex-1 flex flex-col justify-between">
         <div>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <h3 className="truncate text-sm md:text-base font-sans font-semibold text-text-primary">
-                {spot.name}
-              </h3>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <p className="text-xs text-text-secondary font-mono">{formatted}</p>
-                <CategoryBadge category={spot.category ?? "Restaurant"} seed={seed} />
-              </div>
-            </div>
+          <h3 className="truncate text-sm md:text-base font-sans font-semibold text-text-primary mb-1">
+            {spot.name}
+          </h3>
+
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <p className="text-[10px] text-text-secondary font-mono">{formatted}</p>
+            <CategoryBadge category={spot.category ?? "Restaurant"} />
           </div>
+
           {spot.comment && (
-            <p className="mt-2.5 text-sm leading-relaxed text-text-secondary">
+            <p className="text-xs sm:text-sm leading-relaxed text-text-secondary line-clamp-3">
               {spot.comment}
             </p>
           )}
@@ -250,7 +245,7 @@ function SpotCard({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Pill button (reused for sort + category filter)                    */
+/*  Pill button (neumorphic)                                           */
 /* ------------------------------------------------------------------ */
 function PillButton({
   label,
@@ -265,10 +260,10 @@ function PillButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-3.5 py-2.5 text-xs md:text-sm font-medium transition-all cursor-pointer whitespace-nowrap min-h-[44px] ${
+      className={`rounded-xl px-4 py-2.5 text-xs md:text-sm font-medium transition-all duration-300 cursor-pointer whitespace-nowrap min-h-[40px] ${
         active
-          ? "bg-accent text-white shadow-sm"
-          : "bg-surface text-text-secondary border border-text-secondary/15 hover:opacity-85 active:scale-95"
+          ? "shadow-neu-inset text-accent font-semibold"
+          : "shadow-neu-subtle text-text-secondary hover:text-text-primary active:shadow-neu-inset"
       }`}
     >
       {label}
@@ -277,16 +272,77 @@ function PillButton({
 }
 
 /* ------------------------------------------------------------------ */
+/*  User avatar/profile button                                         */
+/* ------------------------------------------------------------------ */
+function UserProfile({
+  photoURL,
+  displayName,
+  onSignOut,
+}: {
+  photoURL: string | null;
+  displayName: string | null;
+  onSignOut: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="neu-button flex h-11 w-11 items-center justify-center rounded-full overflow-hidden cursor-pointer"
+      >
+        {photoURL ? (
+          <img src={photoURL} alt={displayName ?? "User"} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          <span className="text-sm font-bold text-accent">
+            {(displayName?.[0] ?? "U").toUpperCase()}
+          </span>
+        )}
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-14 z-50 w-52 neu-raised p-3 animate-page-enter">
+            <p className="truncate text-sm font-semibold text-text-primary mb-1">
+              {displayName ?? "User"}
+            </p>
+            <hr className="border-text-secondary/15 my-2" />
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onSignOut(); }}
+              className="neu-button flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-text-secondary hover:text-red-500 cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main page                                                          */
 /* ------------------------------------------------------------------ */
-export default function Home() {
+function HomePage() {
+  const { user, signOut } = useAuth();
   const [name, setName] = useState("");
   const [category, setCategory] = useState<SpotCategory>("Restaurant");
   const [rating, setRating] = useState(7);
   const [comment, setComment] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
+
+  /* -- Modal control state -- */
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
   /* -- Detail modal -- */
   const [selectedSpotId, setSelectedSpotId] = useState<number | null>(null);
@@ -294,9 +350,43 @@ export default function Home() {
   /* -- Theme -- */
   const [dark, setDark] = useState(true);
 
+  /* -- Carousel control -- */
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const [scrollPercent, setScrollPercent] = useState(0);
+
+  /* -- GSAP Animation Refs -- */
+  const modalContainerRef = useRef<HTMLDivElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
+  const modalGooeyBgRef = useRef<HTMLDivElement>(null);
+  const backdropOverlayRef = useRef<HTMLDivElement>(null);
+  const hasAnimatedRef = useRef(false);
+
+  useEffect(() => {
+    // Read stored theme preference
+    try {
+      const stored = localStorage.getItem("keepcheck-theme");
+      if (stored) setDark(stored === "dark");
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
+    try {
+      localStorage.setItem("keepcheck-theme", dark ? "dark" : "light");
+    } catch { /* ignore */ }
   }, [dark]);
+
+  /* -- Prevent body scroll when form modal is open -- */
+  useEffect(() => {
+    if (isFormOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isFormOpen]);
 
   /* -- Storage persistence (best-effort) -- */
   useEffect(() => {
@@ -309,7 +399,7 @@ export default function Home() {
     }
   }, []);
 
-  /* -- Image preview object URL (raw file, NOT compressed) -- */
+  /* -- Image preview object URL -- */
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -322,15 +412,56 @@ export default function Home() {
     return () => URL.revokeObjectURL(url);
   }, [imageFile]);
 
+  /* -- Firestore real-time sync -- */
+  const syncSpots = useCallback(async (firestoreSpots: (FoodSpotLog & { firebaseId: string })[]) => {
+    if (!user) return;
+
+    // Sync each Firestore spot into local Dexie if missing
+    for (const fSpot of firestoreSpots) {
+      const existing = await db.spots.where("firebaseId").equals(fSpot.firebaseId).first();
+      if (!existing) {
+        await db.spots.add({
+          name: fSpot.name,
+          category: fSpot.category ?? "Restaurant",
+          rating: fSpot.rating,
+          comment: fSpot.comment,
+          createdAt: fSpot.createdAt,
+          thumbnail: fSpot.thumbnail,
+          firebaseId: fSpot.firebaseId,
+          userId: user.uid,
+        });
+      }
+    }
+
+    // Remove local spots whose firebaseId no longer exists in Firestore
+    const firestoreIds = new Set(firestoreSpots.map((s) => s.firebaseId));
+    const localSpots = await db.spots.where("userId").equals(user.uid).toArray();
+    for (const local of localSpots) {
+      if (local.firebaseId && !firestoreIds.has(local.firebaseId)) {
+        if (local.id !== undefined) {
+          await db.images.where("spotId").equals(local.id).delete();
+          await db.spots.delete(local.id);
+        }
+      }
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = subscribeToSpots(user.uid, syncSpots);
+    return unsubscribe;
+  }, [user, syncSpots]);
+
   /* -- Search, Sort & Category filter -- */
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [catFilter, setCatFilter] = useState<CategoryFilter>("All");
 
-  // Reactive query – re-renders whenever `spots` table changes
-  const spots = useLiveQuery(() =>
-    db.spots.orderBy("createdAt").reverse().toArray()
-  );
+  // Reactive query — re-renders whenever `spots` table changes
+  const spots = useLiveQuery(() => {
+    if (!user) return [];
+    return db.spots.where("userId").equals(user.uid).reverse().sortBy("createdAt");
+  }, [user]);
 
   /** Derived: filtered + sorted view of spots. */
   const filteredSpots = useMemo(() => {
@@ -338,7 +469,6 @@ export default function Home() {
 
     const query = search.trim().toLowerCase();
 
-    // Filter by search text
     let result = spots;
     if (query) {
       result = result.filter(
@@ -348,35 +478,267 @@ export default function Home() {
       );
     }
 
-    // Filter by category
     if (catFilter !== "All") {
       result = result.filter(
         (s) => (s.category ?? "Restaurant") === catFilter
       );
     }
 
-    // Sort
     if (sortMode === "highest") {
       result = [...result].sort((a, b) => b.rating - a.rating);
     } else if (sortMode === "lowest") {
       result = [...result].sort((a, b) => a.rating - b.rating);
+    } else if (sortMode === "newest") {
+      result = [...result].sort((a, b) => b.createdAt - a.createdAt);
     }
-    // "newest" is the default order from the query (createdAt desc)
 
     return result;
   }, [spots, search, sortMode, catFilter]);
+
+  /* -- Carousel scrolling listener -- */
+  const handleCarouselScroll = useCallback(() => {
+    if (carouselRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = carouselRef.current;
+      const totalScrollable = scrollWidth - clientWidth;
+      if (totalScrollable > 0) {
+        setScrollPercent((scrollLeft / totalScrollable) * 100);
+      } else {
+        setScrollPercent(0);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (el) {
+      el.addEventListener("scroll", handleCarouselScroll, { passive: true });
+      handleCarouselScroll();
+    }
+    return () => el?.removeEventListener("scroll", handleCarouselScroll);
+  }, [filteredSpots, handleCarouselScroll]);
+
+  const scrollCarousel = (direction: "left" | "right") => {
+    if (carouselRef.current) {
+      const scrollAmount = carouselRef.current.clientWidth * 0.75;
+      carouselRef.current.scrollBy({
+        left: direction === "left" ? -scrollAmount : scrollAmount,
+        behavior: "smooth",
+      });
+    }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /*  GSAP Animation Implementation                                      */
+  /* ------------------------------------------------------------------ */
+
+  // 1. Page entrance animation timeline (Run once on mount when spots resolve)
+  useEffect(() => {
+    if (!user || spots === undefined || hasAnimatedRef.current) return;
+    hasAnimatedRef.current = true;
+
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+
+      if (document.querySelector(".gsap-header")) {
+        tl.fromTo(
+          ".gsap-header",
+          { y: -40, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.7 }
+        );
+      }
+      if (document.querySelector(".gsap-spotlight")) {
+        tl.fromTo(
+          ".gsap-spotlight",
+          { y: 35, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.8 },
+          "-=0.45"
+        );
+      }
+      if (document.querySelector(".gsap-feed-header")) {
+        tl.fromTo(
+          ".gsap-feed-header",
+          { y: 25, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.8 },
+          "-=0.55"
+        );
+      }
+      if (document.querySelector(".gsap-feed-filters")) {
+        tl.fromTo(
+          ".gsap-feed-filters",
+          { y: 20, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.8 },
+          "-=0.6"
+        );
+      }
+
+      // Stagger carousel cards
+      if (document.querySelectorAll(".carousel-card").length > 0) {
+        tl.fromTo(
+          ".carousel-card",
+          { scale: 0.92, opacity: 0, y: 15 },
+          { scale: 1, opacity: 1, y: 0, duration: 0.6, stagger: 0.07, ease: "back.out(1.15)" },
+          "-=0.4"
+        );
+      }
+    });
+
+    return () => ctx.revert();
+  }, [user, spots]);
+
+  // 2. Stagger feed items whenever spots or search query updates
+  useEffect(() => {
+    const elements = document.querySelectorAll(".gsap-list-item");
+    if (elements.length > 0) {
+      gsap.fromTo(
+        elements,
+        { opacity: 0, y: 20, scale: 0.98 },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          duration: 0.45,
+          stagger: 0.04,
+          ease: "power2.out",
+          overwrite: "auto"
+        }
+      );
+    }
+  }, [filteredSpots]);
+
+  // 3. Modal Form slide in/out animations
+  const openFormModal = () => {
+    setIsFormOpen(true);
+  };
+
+  const closeFormModal = () => {
+    if (modalContentRef.current && backdropOverlayRef.current && modalGooeyBgRef.current) {
+      const isMobile = window.innerWidth < 640;
+      
+      const tl = gsap.timeline({
+        onComplete: () => {
+          setIsFormOpen(false);
+        }
+      });
+
+      tl.to(backdropOverlayRef.current, {
+        opacity: 0,
+        duration: 0.25,
+        ease: "power2.in"
+      })
+      .to(
+        modalContentRef.current,
+        {
+          opacity: 0,
+          y: isMobile ? 30 : 15,
+          duration: 0.2,
+          ease: "power2.in"
+        },
+        "-=0.2"
+      )
+      .to(
+        modalGooeyBgRef.current,
+        {
+          y: isMobile ? "100%" : 100,
+          scale: isMobile ? 0.8 : 0.7,
+          opacity: 0,
+          duration: 0.45,
+          ease: "back.in(1.2)"
+        },
+        "-=0.2"
+      );
+    } else {
+      setIsFormOpen(false);
+    }
+  };
+
+  // Trigger GSAP entrance when form state flips to open
+  useEffect(() => {
+    if (isFormOpen && modalContentRef.current && backdropOverlayRef.current && modalGooeyBgRef.current) {
+      const isMobile = window.innerWidth < 640;
+
+      // Set initial values
+      gsap.set(backdropOverlayRef.current, { opacity: 0 });
+      gsap.set(modalContentRef.current, {
+        opacity: 0,
+        y: isMobile ? 25 : 15
+      });
+      gsap.set(modalGooeyBgRef.current, {
+        y: isMobile ? "100%" : 100,
+        scale: isMobile ? 0.8 : 0.7,
+        opacity: 0
+      });
+
+      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+
+      tl.to(backdropOverlayRef.current, {
+        opacity: 1,
+        duration: 0.3
+      })
+      .to(
+        modalGooeyBgRef.current,
+        {
+          y: 0,
+          scale: 1,
+          opacity: 1,
+          duration: 0.55,
+          ease: isMobile ? "power3.out" : "back.out(1.3)"
+        },
+        "-=0.2"
+      )
+      .to(
+        modalContentRef.current,
+        {
+          opacity: 1,
+          y: 0,
+          duration: 0.35,
+          ease: "power2.out"
+        },
+        "-=0.25"
+      );
+    }
+  }, [isFormOpen]);
+
+  // 4. Elastic animations for FAB hover/clicks
+  const handleFABHover = (enter: boolean) => {
+    gsap.to(".gsap-fab", {
+      scale: enter ? 1.15 : 1,
+      rotation: enter ? 90 : 0,
+      duration: 0.5,
+      ease: "elastic.out(1, 0.4)",
+      overwrite: "auto"
+    });
+  };
+
+  const handleFABPress = (down: boolean) => {
+    gsap.to(".gsap-fab", {
+      scale: down ? 0.92 : 1.15,
+      duration: 0.25,
+      ease: "power2.out",
+      overwrite: "auto"
+    });
+  };
+
+  // Submit button success timeline
+  useEffect(() => {
+    if (success) {
+      gsap.fromTo(
+        ".gsap-success-tick",
+        { scale: 0.4, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.5, ease: "elastic.out(1.1, 0.35)" }
+      );
+    }
+  }, [success]);
 
   /* ---------- handlers ---------- */
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || !user) return;
 
     setSaving(true);
 
     try {
-      // Compress image in parallel (if present) before opening the txn.
       let thumbnail: string | undefined;
       let compressedBlob: Blob | undefined;
 
@@ -396,35 +758,71 @@ export default function Home() {
         }
       }
 
-      // Dual-write transaction — keeps `spots` and `images` in sync.
-      await db.transaction("rw", db.spots, db.images, async () => {
-        const spotId = await db.spots.add({
-          name: trimmed,
-          category,
-          rating,
-          comment: comment.trim(),
-          createdAt: Date.now(),
-          thumbnail,
+      const spotData = {
+        name: trimmed,
+        category,
+        rating,
+        comment: comment.trim(),
+        createdAt: Date.now(),
+        thumbnail,
+      };
+
+      const firebaseId = generateSpotId(user.uid);
+
+      const spotId = await db.transaction("rw", db.spots, db.images, async () => {
+        const localId = await db.spots.add({
+          ...spotData,
+          firebaseId,
+          userId: user.uid,
         });
 
         if (compressedBlob) {
           await db.images.add({
-            spotId,
+            spotId: localId,
             blob: compressedBlob,
             createdAt: Date.now(),
           });
         }
+
+        return localId;
       });
 
-      // Reset form
+      await writeSpotToFirestore(user.uid, firebaseId, spotData);
+
+      if (compressedBlob) {
+        try {
+          const reader = new FileReader();
+          const base64 = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(compressedBlob!);
+          });
+          await addImageToFirestore(user.uid, {
+            spotFirebaseId: firebaseId,
+            base64,
+            createdAt: Date.now(),
+          });
+        } catch (imgUploadErr) {
+          console.warn("[KeepCheck] Image upload to Firestore failed (will retry on next sync):", imgUploadErr);
+        }
+      }
+
+      console.log(`[KeepCheck] Spot saved (local: ${spotId}, firebase: ${firebaseId})`);
+
       setName("");
       setCategory("Restaurant");
       setRating(7);
       setComment("");
       setImageFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      
+      setSuccess(true);
+      
+      setTimeout(() => {
+        setSuccess(false);
+        closeFormModal();
+      }, 1200);
     } catch (err: unknown) {
-      // Handle quota exceeded (phone out of disk space).
       if (
         err instanceof DOMException &&
         err.name === "QuotaExceededError"
@@ -442,7 +840,8 @@ export default function Home() {
   }
 
   async function handleExport() {
-    const allSpots = await db.spots.toArray();
+    if (!user) return;
+    const allSpots = await db.spots.where("userId").equals(user.uid).toArray();
     const json = JSON.stringify(allSpots, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -455,291 +854,584 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  /** Cascade delete: remove associated images THEN the spot record. */
   async function deleteEntry(id: number) {
     try {
+      setDeletingIds((prev) => new Set(prev).add(id));
+      const spot = await db.spots.get(id);
+
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
       await db.transaction("rw", db.spots, db.images, async () => {
         await db.images.where("spotId").equals(id).delete();
         await db.spots.delete(id);
       });
+
+      if (spot?.firebaseId && user) {
+        try {
+          await deleteImagesForSpotFromFirestore(user.uid, spot.firebaseId);
+          await deleteSpotFromFirestore(user.uid, spot.firebaseId);
+        } catch (fireErr) {
+          console.warn("[KeepCheck] Firestore delete failed (offline?):", fireErr);
+        }
+      }
+
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     } catch (error) {
       console.error("Failed to delete entry:", error);
-      alert("Could not delete the entry. Please try again.");
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   }
 
   /* ---------- render ---------- */
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-screen-lg flex-col px-4 sm:px-6 lg:px-8 py-6 sm:py-10 lg:py-16">
+    <div className="relative mx-auto flex min-h-dvh w-full max-w-screen-lg flex-col px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+      {/* ---- SVG Gooey filters ---- */}
+      <svg className="absolute h-0 w-0" aria-hidden="true">
+        <defs>
+          <filter id="gooey-bg">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="gooey" />
+            <feComposite in="SourceGraphic" in2="gooey" operator="atop" />
+          </filter>
+          <filter id="gooey-medium">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" result="gooey" />
+            <feComposite in="SourceGraphic" in2="gooey" operator="atop" />
+          </filter>
+          <filter id="gooey-rating">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 16 -6" result="goo" />
+            <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+          </filter>
+        </defs>
+      </svg>
+
+      {/* ---- Background blobs ---- */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-40" style={{ filter: "url(#gooey-bg)" }}>
+        <div className="animate-blob-1 absolute -top-32 -left-32 h-80 w-80 rounded-full bg-accent/10" />
+        <div className="animate-blob-2 absolute -bottom-40 -right-24 h-96 w-96 rounded-full bg-category-cafe/10" />
+        <div className="animate-blob-3 absolute top-1/2 left-1/3 h-56 w-56 rounded-full bg-category-restaurant/10" />
+      </div>
+
       {/* ---- Header ---- */}
-      <header className="relative mb-6 sm:mb-8 text-center">
-        {/* Theme toggle — top-right */}
-        <div className="absolute right-0 top-0">
-          <ThemeToggle dark={dark} onToggle={() => setDark((d) => !d)} />
-        </div>
+      <header className="relative mb-6 sm:mb-8 gsap-header gsap-reveal">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold tracking-tight text-text-primary">
+              Keep<span className="text-accent">Check</span>
+            </h1>
+            <p className="mt-1 text-sm sm:text-base text-text-secondary">
+              Track &amp; rate every café and restaurant.
+            </p>
+          </div>
 
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold tracking-tight text-text-primary">
-          Keep<span className="text-accent">Check</span>
-        </h1>
-        <p className="mt-1 text-sm sm:text-base text-text-secondary">
-          Track &amp; rate every café and restaurant.
-        </p>
-      </header>
-
-      {/* ---- Form ---- */}
-      <form
-        onSubmit={handleSubmit}
-        className="mx-auto w-full max-w-lg mb-8 sm:mb-10 rounded-2xl border border-text-secondary/15 bg-surface p-4 sm:p-5 shadow-sm"
-      >
-        {/* Name */}
-        <label
-          htmlFor="spot-name"
-          className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-text-secondary"
-        >
-          Business / Spot Name
-        </label>
-        <input
-          id="spot-name"
-          type="text"
-          required
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Starbucks, Samgyupsal…"
-          className="mb-5 w-full rounded-lg border border-text-secondary/20 bg-bg px-3 py-3 text-sm sm:text-base text-text-primary outline-none transition-colors placeholder:text-text-secondary/40 focus:border-accent focus:ring-1 focus:ring-accent"
-        />
-
-        {/* Category */}
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
-          Category
-        </p>
-        <div className="mb-5">
-          <CategoryPills value={category} onChange={setCategory} />
-        </div>
-
-        {/* Rating */}
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
-          Rating&ensp;
-          <span className="normal-case tracking-normal text-text-secondary/60">
-            ({rating} / 10)
-          </span>
-        </p>
-        <div className="mb-5">
-          <RatingPills value={rating} onChange={setRating} />
-        </div>
-
-        {/* Comment */}
-        <label
-          htmlFor="spot-comment"
-          className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-text-secondary"
-        >
-          Comment
-        </label>
-        <textarea
-          id="spot-comment"
-          rows={3}
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Notes about the food, drink, vibe, or service…"
-          className="mb-5 w-full resize-none rounded-lg border border-text-secondary/20 bg-bg px-3 py-3 text-sm sm:text-base text-text-primary outline-none transition-colors placeholder:text-text-secondary/40 focus:border-accent focus:ring-1 focus:ring-accent"
-        />
-
-        {/* Photo upload */}
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
-          Photo{" "}
-          <span className="normal-case tracking-normal text-text-secondary/60">
-            (optional)
-          </span>
-        </p>
-
-        <div className="mb-5">
-          {/* Custom file button */}
-          <label
-            htmlFor="spot-photo"
-            className="inline-flex items-center gap-2 rounded-lg border border-text-secondary/20 bg-bg px-4 py-3 text-sm font-medium text-text-secondary transition-all hover:opacity-85 cursor-pointer min-h-[44px]"
-          >
-            <Camera className="h-4 w-4" />
-            {imageFile ? "Change Photo" : "Take or Choose Photo"}
-          </label>
-          <input
-            ref={fileInputRef}
-            id="spot-photo"
-            type="file"
-            accept="image/*"
-            onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-            className="sr-only"
-          />
-
-          {/* Preview strip — uses raw object URL, NOT makeThumbnail() */}
-          {previewUrl && (
-            <div className="relative mt-3 inline-block">
-              <img
-                src={previewUrl}
-                alt="Selected photo preview"
-                className="h-24 w-24 rounded-lg object-cover border border-text-secondary/20"
-              />
+          <div className="flex items-center gap-2.5">
+            <ThemeToggle dark={dark} onToggle={() => setDark((d) => !d)} />
+            
+            {/* Desktop Add Spot button */}
+            {user && (
               <button
                 type="button"
-                onClick={() => {
-                  setImageFile(null);
-                  if (fileInputRef.current) fileInputRef.current.value = "";
-                }}
-                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-white text-xs shadow-md hover:opacity-90 transition-colors cursor-pointer"
-                aria-label="Remove photo"
+                onClick={openFormModal}
+                className="hidden sm:inline-flex items-center gap-1.5 neu-button rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold text-accent cursor-pointer hover:text-accent-glow"
               >
-                ✕
+                <Plus className="h-4 w-4" />
+                Add Spot
               </button>
-            </div>
-          )}
+            )}
+
+            {user && (
+              <UserProfile
+                photoURL={user.photoURL}
+                displayName={user.displayName}
+                onSignOut={signOut}
+              />
+            )}
+          </div>
         </div>
+      </header>
 
-        {/* Submit */}
-        <button
-          type="submit"
-          disabled={saving || !name.trim()}
-          className="w-full rounded-lg bg-accent py-3 text-sm sm:text-base font-semibold text-white transition-opacity hover:opacity-90 active:opacity-80 disabled:opacity-40 cursor-pointer min-h-[44px]"
-        >
-          {saving ? "Saving…" : "Log Spot"}
-        </button>
-      </form>
-
-      {/* ---- Feed ---- */}
-      <section className="flex flex-1 flex-col">
-        {/* Title + Export */}
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base sm:text-lg font-serif font-semibold text-text-primary">
-            Your Logs
-            {spots && spots.length > 0 && (
-              <span className="ml-2 text-sm font-mono font-normal text-text-secondary">
-                ({filteredSpots ? filteredSpots.length : spots.length})
+      {/* ---- Spotlight Carousel ---- */}
+      <section className="relative w-full mb-8 sm:mb-12 gsap-spotlight gsap-reveal">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base sm:text-lg font-serif font-semibold text-text-primary flex items-center gap-2">
+            <span>✨ Spotlight Logs</span>
+            {filteredSpots && filteredSpots.length > 0 && (
+              <span className="text-xs font-mono font-normal text-text-secondary/60">
+                ({filteredSpots.length} items)
               </span>
             )}
           </h2>
 
+          <div className="flex items-center gap-2">
+            {spots && spots.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel("left")}
+                  className="neu-button flex h-9 w-9 items-center justify-center rounded-full text-text-secondary cursor-pointer hover:text-accent"
+                  aria-label="Scroll left"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel("right")}
+                  className="neu-button flex h-9 w-9 items-center justify-center rounded-full text-text-secondary cursor-pointer hover:text-accent"
+                  aria-label="Scroll right"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Carousel Window */}
+        <div className="relative group rounded-3xl p-1 bg-transparent">
+          {spots === undefined ? (
+            <div className="py-20 text-center text-sm font-mono text-text-secondary animate-pulse neu-raised">Loading spots…</div>
+          ) : spots.length === 0 ? (
+            <div className="py-16 text-center neu-raised bg-bg/40 border border-dashed border-text-secondary/25">
+              <div className="neu-raised bg-bg inline-flex h-20 w-20 items-center justify-center rounded-3xl mx-auto mb-4">
+                <span className="text-3xl">☕</span>
+              </div>
+              <p className="text-sm text-text-secondary font-medium">
+                No spots logged yet — add your first cafe or restaurant to get started!
+              </p>
+            </div>
+          ) : filteredSpots && filteredSpots.length === 0 ? (
+            <div className="py-16 text-center neu-raised">
+              <p className="text-sm text-text-secondary">No spots match your current filters.</p>
+            </div>
+          ) : (
+            <div className="carousel-mask overflow-hidden rounded-3xl">
+              <div
+                ref={carouselRef}
+                className="carousel-container gap-6 py-6 px-4 scrollbar-none"
+              >
+                {filteredSpots && filteredSpots.map((spot, index) => (
+                  <div
+                    key={spot.id}
+                    className={`carousel-card group/item relative shrink-0 transition-transform duration-300 ${deletingIds.has(spot.id!) ? "animate-melt" : ""}`}
+                  >
+                    <SpotCard
+                      spot={spot}
+                      index={index}
+                      onClick={() => spot.id !== undefined && setSelectedSpotId(spot.id)}
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        spot.id !== undefined && deleteEntry(spot.id);
+                      }}
+                      className="absolute right-4 bottom-4 neu-button inline-flex h-9 w-9 items-center justify-center rounded-full text-text-secondary/70 opacity-0 group-hover/item:opacity-100 transition-opacity duration-300 hover:text-red-500 active:shadow-neu-inset cursor-pointer z-10 bg-bg"
+                      aria-label="Delete entry"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Scroll Progress line indicator */}
+        {filteredSpots && filteredSpots.length > 1 && (
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <span className="text-[9px] font-mono text-text-secondary/50 uppercase tracking-wider">START</span>
+            <div className="h-1.5 w-32 rounded-full shadow-neu-inset bg-bg/50 relative overflow-hidden">
+              <div
+                className="absolute top-0 bottom-0 bg-accent rounded-full transition-all duration-100"
+                style={{
+                  left: "0",
+                  width: "20px",
+                  transform: `translateX(calc(${scrollPercent} * (128px - 20px) / 100))`,
+                }}
+              />
+            </div>
+            <span className="text-[9px] font-mono text-text-secondary/50 uppercase tracking-wider">END</span>
+          </div>
+        )}
+      </section>
+
+      {/* ---- Bottom Section: Activity Feed & Logs ---- */}
+      <section className="w-full mb-16">
+        
+        {/* Activity feed controls header */}
+        <div className="flex items-center justify-between mb-4 gsap-feed-header gsap-reveal">
+          <h2 className="text-base sm:text-lg font-serif font-semibold text-text-primary">
+            Activity Feed
+          </h2>
           {spots && spots.length > 0 && (
             <button
               type="button"
               onClick={handleExport}
-              className="rounded-lg border border-text-secondary/20 bg-surface px-3.5 py-2.5 text-xs sm:text-sm font-medium text-text-secondary transition-all hover:bg-bg active:scale-95 cursor-pointer min-h-[44px]"
+              className="neu-button rounded-xl px-3 py-1.5 text-xs font-semibold text-text-secondary cursor-pointer min-h-[34px] hover:text-text-primary"
             >
               Export Backup
             </button>
           )}
         </div>
 
-        {/* ---- Control bar: Search + Category + Sort ---- */}
-        {spots && spots.length > 0 && (
-          <div className="mb-4 sm:mb-5 flex flex-col gap-3">
-            {/* Search */}
-            <div className="relative">
-              <svg
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary/50"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-              <input
-                id="search-logs"
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search spots or comments…"
-                className="w-full rounded-lg border border-text-secondary/20 bg-surface py-3 pl-10 pr-3 text-sm sm:text-base text-text-primary outline-none transition-colors placeholder:text-text-secondary/40 focus:border-accent focus:ring-1 focus:ring-accent min-h-[44px]"
-              />
-            </div>
-
-            {/* Category filter + Sort buttons — scrollable row on mobile */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mb-1 scrollbar-none">
-              {/* Category filter */}
-              <PillButton
-                label="All"
-                active={catFilter === "All"}
-                onClick={() => setCatFilter("All")}
-              />
-              <PillButton
-                label="☕ Cafe"
-                active={catFilter === "Cafe"}
-                onClick={() => setCatFilter("Cafe")}
-              />
-              <PillButton
-                label="🍽️ Restaurant"
-                active={catFilter === "Restaurant"}
-                onClick={() => setCatFilter("Restaurant")}
-              />
-
-              {/* Divider */}
-              <div className="mx-1 h-5 w-px shrink-0 bg-text-secondary/20" />
-
-              {/* Sort */}
-              <PillButton
-                label="Newest"
-                active={sortMode === "newest"}
-                onClick={() => setSortMode("newest")}
-              />
-              <PillButton
-                label="Highest"
-                active={sortMode === "highest"}
-                onClick={() => setSortMode("highest")}
-              />
-              <PillButton
-                label="Lowest"
-                active={sortMode === "lowest"}
-                onClick={() => setSortMode("lowest")}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ---- Feed content ---- */}
-        {spots === undefined && (
-          <p className="py-12 text-center text-sm font-mono text-text-secondary animate-pulse">Loading…</p>
-        )}
-
-        {spots && spots.length === 0 && (
-          <p className="py-12 text-center text-sm text-text-secondary">
-            No spots logged yet — add your first one above!
-          </p>
-        )}
-
-        {filteredSpots && filteredSpots.length === 0 && spots && spots.length > 0 && (
-          <p className="py-12 text-center text-sm text-text-secondary">
-            No logs match your current filters.
-          </p>
-        )}
-
-        {filteredSpots && filteredSpots.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 pb-6 pt-3">
-            {filteredSpots.map((spot) => (
-              <div key={spot.id} className="group relative">
-                <SpotCard
-                  spot={spot}
-                  onClick={() =>
-                    spot.id !== undefined && setSelectedSpotId(spot.id)
-                  }
-                />
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    spot.id !== undefined && deleteEntry(spot.id);
-                  }}
-                  className="absolute right-3 bottom-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-text-secondary/15 text-text-secondary/70 opacity-60 transition-all hover:opacity-100 hover:bg-red-50 hover:text-red-600 active:scale-95 active:opacity-100 active:bg-red-100 dark:bg-surface dark:text-text-secondary/70 dark:hover:bg-red-950/30 dark:hover:text-red-400 cursor-pointer backdrop-blur-sm shadow-sm z-10"
-                  aria-label="Delete entry"
+        {spots && spots.length > 0 ? (
+          <div className="space-y-5">
+            {/* Filter controls row */}
+            <div className="neu-raised p-4 sm:p-5 flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between gsap-feed-filters gsap-reveal">
+              {/* Search */}
+              <div className="relative flex-1">
+                <svg
+                  className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary/50"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <input
+                  id="search-logs"
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search spots by name or notes…"
+                  className="neu-input w-full pl-11 pr-4"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-text-secondary/60 hover:text-accent font-bold p-1 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
-            ))}
+
+              {/* Filters */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                <PillButton label="All" active={catFilter === "All"} onClick={() => setCatFilter("All")} />
+                <PillButton label="☕ Cafe" active={catFilter === "Cafe"} onClick={() => setCatFilter("Cafe")} />
+                <PillButton label="🍽️ Restaurant" active={catFilter === "Restaurant"} onClick={() => setCatFilter("Restaurant")} />
+
+                <div className="mx-1 h-5 w-px shrink-0 bg-text-secondary/20" />
+
+                <PillButton label="Newest" active={sortMode === "newest"} onClick={() => setSortMode("newest")} />
+                <PillButton label="Highest" active={sortMode === "highest"} onClick={() => setSortMode("highest")} />
+                <PillButton label="Lowest" active={sortMode === "lowest"} onClick={() => setSortMode("lowest")} />
+              </div>
+            </div>
+
+            {/* Logs display */}
+            {filteredSpots && filteredSpots.length === 0 ? (
+              <div className="py-16 text-center neu-raised">
+                <p className="text-sm text-text-secondary">No logs match your current query or filters.</p>
+              </div>
+            ) : (
+              /* List/Table View Mode */
+              <div className="neu-raised p-4 space-y-3 pt-2">
+                {filteredSpots && filteredSpots.map((spot) => (
+                  <div
+                    key={spot.id}
+                    onClick={() => spot.id !== undefined && setSelectedSpotId(spot.id)}
+                    className="gsap-list-item neu-button p-4 flex items-center justify-between gap-3 text-sm cursor-pointer hover:bg-bg/85 relative transition-all"
+                  >
+                    <div className="min-w-0 flex-1 flex items-center gap-3.5">
+                      <span className="text-2xl flex-shrink-0">{spot.category === "Cafe" ? "☕" : "🍽️"}</span>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-text-primary truncate text-base">{spot.name}</p>
+                        <div className="flex items-center gap-2.5 mt-1">
+                          <span className="text-[10px] text-text-secondary/60 font-mono flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {new Date(spot.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                          </span>
+                          <span className="text-text-secondary/20">•</span>
+                          {spot.comment ? (
+                            <p className="text-xs text-text-secondary truncate max-w-[200px] sm:max-w-xs md:max-w-md">
+                              {spot.comment}
+                            </p>
+                          ) : (
+                            <span className="text-xs text-text-secondary/40 italic">No notes</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3.5 flex-shrink-0">
+                      <span className="font-bold font-mono text-accent text-xs bg-bg/50 shadow-neu-inset px-2.5 py-1 rounded-full">
+                        ★ {spot.rating}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          spot.id !== undefined && deleteEntry(spot.id);
+                        }}
+                        className="text-text-secondary/50 hover:text-red-500 transition-colors p-1"
+                        aria-label="Delete log"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="py-12 text-center neu-raised">
+            <p className="text-sm text-text-secondary">Your logs feed will display here once you add a spot.</p>
           </div>
         )}
       </section>
+
+      {/* ---- Form Modal Overlay ---- */}
+      {isFormOpen && (
+        <div
+          ref={modalContainerRef}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Log new food spot"
+        >
+          {/* Backdrop Overlay */}
+          <div
+            ref={backdropOverlayRef}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm shadow-[0_0_8px_rgba(0,0,0,0.4)]"
+            onClick={closeFormModal}
+          />
+
+          {/* Localized SVG filter for gooey modal container background */}
+          <svg className="absolute h-0 w-0" aria-hidden="true">
+            <defs>
+              <filter id="gooey-modal">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="15" result="blur" />
+                <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -10" result="gooey" />
+                <feComposite in="SourceGraphic" in2="gooey" operator="atop" />
+              </filter>
+            </defs>
+          </svg>
+
+          {/* Sibling Layer 1: Gooey Background canvas */}
+          <div
+            className="absolute inset-0 pointer-events-none flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden"
+            style={{ filter: "url(#gooey-modal)" }}
+          >
+            {/* The liquid background block */}
+            <div
+              ref={modalGooeyBgRef}
+              className="w-full sm:max-w-md h-[92dvh] sm:h-[630px] rounded-t-[40px] sm:rounded-[40px] bg-bg relative"
+              style={{
+                boxShadow: "0 -3px 0 0 var(--accent)",
+                transformOrigin: "bottom center"
+              }}
+            >
+              {/* Extra floating liquid drops inside gooey layer to trigger organic morphing on open/close */}
+              <div className="absolute -top-6 left-1/4 w-8 h-8 rounded-full bg-accent opacity-20" />
+              <div className="absolute -top-4 right-1/3 w-6 h-6 rounded-full bg-accent opacity-30" />
+            </div>
+          </div>
+
+          {/* Sibling Layer 2: Clean Crisp Form Content */}
+          <div
+            ref={modalContentRef}
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 overflow-y-auto max-h-[92dvh] sm:max-h-[85dvh] relative flex flex-col z-10 bg-transparent"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4 border-b border-text-secondary/10 pb-2.5">
+              <h3 className="text-base sm:text-lg font-serif font-bold text-text-primary">
+                Log a Food Spot
+              </h3>
+              <button
+                type="button"
+                onClick={closeFormModal}
+                className="neu-button flex h-8 w-8 items-center justify-center rounded-full text-text-secondary cursor-pointer hover:text-red-500"
+                aria-label="Close form"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Business Name */}
+              <div>
+                <label
+                  htmlFor="spot-name"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-secondary"
+                >
+                  Business / Spot Name
+                </label>
+                <input
+                  id="spot-name"
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Sam's Cafe, Shake Shack…"
+                  className="neu-input w-full"
+                />
+              </div>
+
+              {/* Category selector */}
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                  Category
+                </p>
+                <CategoryPills value={category} onChange={setCategory} />
+              </div>
+
+              {/* Rating selector */}
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary flex justify-between">
+                  <span>Rating</span>
+                  <span className="font-mono text-accent">({rating} / 10)</span>
+                </p>
+                <RatingPills value={rating} onChange={setRating} />
+              </div>
+
+              {/* Comments textarea */}
+              <div>
+                <label
+                  htmlFor="spot-comment"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-secondary"
+                >
+                  Comments
+                </label>
+                <textarea
+                  id="spot-comment"
+                  rows={4}
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Notes on experience, cost, or delicious dishes…"
+                  className="neu-input w-full resize-none"
+                />
+              </div>
+
+              {/* Photo Area */}
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                  Photo <span className="text-[10px] text-text-secondary/50 lowercase font-normal">(optional)</span>
+                </p>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                    if (e.dataTransfer.files?.[0]) {
+                      setImageFile(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`
+                    upload-dropzone p-4 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 min-h-[100px]
+                    ${dragActive ? "active-drop animate-pulse-border" : ""}
+                    ${imageFile ? "border-accent/40 bg-accent/5" : "border-text-secondary/25"}
+                  `}
+                >
+                  <Camera className={`h-5 w-5 mb-1 ${imageFile ? "text-accent" : "text-text-secondary/60"}`} />
+                  <p className="text-xs font-bold text-text-primary">
+                    {imageFile ? "Change Photo" : "Upload or Drop Image"}
+                  </p>
+                  <p className="text-[10px] text-text-secondary/45 mt-0.5">
+                    Max 1MB JPEG/PNG
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    id="spot-photo"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+                    className="sr-only"
+                  />
+                </div>
+
+                {previewUrl && (
+                  <div className="relative mt-3 inline-block animate-liquid-pop">
+                    <img
+                      src={previewUrl}
+                      alt="Selected photo preview"
+                      className="h-16 w-16 rounded-2xl object-cover shadow-neu-subtle p-1 bg-bg border border-accent/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setImageFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white text-[9px] shadow hover:scale-110 active:scale-90 transition-all cursor-pointer border border-bg"
+                      aria-label="Remove photo"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={saving || !name.trim() || success}
+                className={`
+                  w-full rounded-2xl py-3 text-sm sm:text-base font-semibold text-white
+                  transition-all duration-300 cursor-pointer min-h-[44px] flex items-center justify-center gap-2
+                  ${success
+                    ? "bg-green-600 shadow-neu-inset scale-[0.98]"
+                    : "bg-accent shadow-neu-button hover:shadow-neu-raised active:shadow-neu-inset"
+                  }
+                  disabled:opacity-40
+                `}
+              >
+                {saving ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                    Saving...
+                  </>
+                ) : success ? (
+                  <span className="gsap-success-tick flex items-center gap-1 font-bold">
+                    ✓ Saved!
+                  </span>
+                ) : (
+                  "Log Spot"
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Floating Action Button (FAB) ---- */}
+      {user && (
+        <button
+          type="button"
+          onClick={openFormModal}
+          onMouseEnter={() => handleFABHover(true)}
+          onMouseLeave={() => handleFABHover(false)}
+          onMouseDown={() => handleFABPress(true)}
+          onMouseUp={() => handleFABPress(false)}
+          className="gsap-fab fixed bottom-6 right-6 z-40 neu-button h-14 w-14 rounded-full bg-accent text-white flex items-center justify-center shadow-lg cursor-pointer transition-all duration-300 group"
+          aria-label="Add new spot"
+        >
+          <Plus className="h-6 w-6 text-white" />
+        </button>
+      )}
 
       {/* ---- Detail modal ---- */}
       {selectedSpotId !== null && (
@@ -749,5 +1441,16 @@ export default function Home() {
         />
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Export with AuthGuard wrapper                                       */
+/* ------------------------------------------------------------------ */
+export default function Home() {
+  return (
+    <AuthGuard>
+      <HomePage />
+    </AuthGuard>
   );
 }

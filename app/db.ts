@@ -13,6 +13,10 @@ export interface FoodSpotLog {
   createdAt: number; // epoch ms
   /** Base64 JPEG data-URL thumbnail for fast list rendering. */
   thumbnail?: string;
+  /** Firestore document ID (for cloud sync). */
+  firebaseId?: string;
+  /** Firebase Auth UID that owns this entry. */
+  userId?: string;
 }
 
 /** Full-resolution image associated with a spot (one image per spot). */
@@ -23,6 +27,8 @@ export interface SpotImage {
   /** Compressed JPEG binary — stored but NOT indexed. */
   blob: Blob;
   createdAt: number; // epoch ms
+  /** Firestore document ID for the image. */
+  firebaseId?: string;
 }
 
 class KeepCheckDB extends Dexie {
@@ -54,11 +60,6 @@ class KeepCheckDB extends Dexie {
       );
 
     // v3 — adds `images` store + optional `thumbnail` field on spots.
-    // The spots index string is unchanged because `thumbnail` is NOT
-    // indexed (Dexie only requires indexed fields in the schema string).
-    // The images store indexes `spotId` for cascade-delete lookups and
-    // `createdAt` for chronological queries; `blob` is stored but never
-    // indexed to save space.
     this.version(3)
       .stores({
         spots: "++id, name, category, rating, createdAt",
@@ -69,11 +70,30 @@ class KeepCheckDB extends Dexie {
           .table<FoodSpotLog>("spots")
           .toCollection()
           .modify((spot) => {
-            // Backfill — existing rows simply get `undefined` so the
-            // TypeScript `?` optional field is satisfied. This is a
-            // no-op for the data but documents the migration intent.
             if (spot.thumbnail === undefined) {
               spot.thumbnail = undefined;
+            }
+          })
+      );
+
+    // v4 — adds `firebaseId` and `userId` fields for cloud sync.
+    // These are indexed so we can look up spots by their Firestore ID
+    // and filter by user.
+    this.version(4)
+      .stores({
+        spots: "++id, name, category, rating, createdAt, firebaseId, userId",
+        images: "++id, spotId, createdAt, firebaseId",
+      })
+      .upgrade((tx) =>
+        tx
+          .table<FoodSpotLog>("spots")
+          .toCollection()
+          .modify((spot) => {
+            if (spot.firebaseId === undefined) {
+              spot.firebaseId = undefined;
+            }
+            if (spot.userId === undefined) {
+              spot.userId = undefined;
             }
           })
       );
