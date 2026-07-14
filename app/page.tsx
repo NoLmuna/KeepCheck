@@ -841,7 +841,7 @@ function HomePage() {
           ...spotData,
           firebaseId,
           userId: user.uid,
-          pendingSync: true, // Mark as needing cloud sync
+          pendingSync: true, // Assume pending until Firestore write succeeds
         });
 
         if (compressedBlob) {
@@ -857,12 +857,35 @@ function HomePage() {
 
       console.log(`[KeepCheck] Spot saved locally (id: ${spotId}, firebase: ${firebaseId})`);
 
-      // ---- 2. Attempt Firestore sync in background (non-blocking) ----
-      const savedSpot = await db.spots.get(spotId);
-      if (savedSpot) {
-        syncSpotToFirestore(user.uid, savedSpot).catch((err) => {
-          console.warn("[KeepCheck] Background Firestore sync failed (will retry when online):", err);
-        });
+      // ---- 2. Attempt Firestore write directly (works offline via persistentLocalCache) ----
+      try {
+        await writeSpotToFirestore(user.uid, firebaseId, spotData);
+
+        // Firestore write succeeded (or queued by local cache) — clear pendingSync
+        await db.spots.update(spotId, { pendingSync: false });
+        console.log(`[KeepCheck] Spot synced to Firestore (${firebaseId})`);
+
+        // Upload image to Firestore (non-blocking, best-effort)
+        if (compressedBlob) {
+          try {
+            const reader = new FileReader();
+            const base64 = await new Promise<string>((resolve, reject) => {
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(compressedBlob!);
+            });
+            await addImageToFirestore(user.uid, {
+              spotFirebaseId: firebaseId,
+              base64,
+              createdAt: Date.now(),
+            });
+          } catch (imgUploadErr) {
+            console.warn("[KeepCheck] Image upload to Firestore failed (will retry on sync):", imgUploadErr);
+          }
+        }
+      } catch (firestoreErr) {
+        // Firestore write failed — pendingSync stays true, will retry when online
+        console.warn("[KeepCheck] Firestore write failed — queued for sync when online:", firestoreErr);
       }
 
       // ---- 3. Reset form & show success ----
