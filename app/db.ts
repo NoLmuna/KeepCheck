@@ -17,6 +17,8 @@ export interface FoodSpotLog {
   firebaseId?: string;
   /** Firebase Auth UID that owns this entry. */
   userId?: string;
+  /** True when the entry has been saved locally but not yet synced to Firestore. */
+  pendingSync?: boolean;
 }
 
 /** Full-resolution image associated with a spot (one image per spot). */
@@ -94,6 +96,26 @@ class KeepCheckDB extends Dexie {
             }
             if (spot.userId === undefined) {
               spot.userId = undefined;
+            }
+          })
+      );
+
+    // v5 — adds `pendingSync` index for offline-first sync tracking.
+    // When a spot is saved locally but hasn't been synced to Firestore
+    // yet, pendingSync = true. The sync manager uses this index to
+    // efficiently sweep all unsynced entries.
+    this.version(5)
+      .stores({
+        spots: "++id, name, category, rating, createdAt, firebaseId, userId, pendingSync",
+        images: "++id, spotId, createdAt, firebaseId",
+      })
+      .upgrade((tx) =>
+        tx
+          .table<FoodSpotLog>("spots")
+          .toCollection()
+          .modify((spot) => {
+            if (spot.pendingSync === undefined) {
+              spot.pendingSync = false;
             }
           })
       );

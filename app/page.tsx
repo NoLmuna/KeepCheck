@@ -15,7 +15,12 @@ import {
   deleteImagesForSpotFromFirestore,
   subscribeToSpots,
 } from "@/lib/firestore";
-import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X } from "lucide-react";
+import {
+  syncSpotToFirestore,
+  queuePendingDelete,
+  startOnlineListener,
+} from "@/lib/offlineSync";
+import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X, WifiOff, Cloud, CloudOff } from "lucide-react";
 import { gsap } from "gsap";
 
 /* ------------------------------------------------------------------ */
@@ -369,6 +374,10 @@ function HomePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
 
+  /* -- Online/offline state -- */
+  const [isOnline, setIsOnline] = useState(true);
+  const [syncToastMsg, setSyncToastMsg] = useState<string | null>(null);
+
   /* -- Modal control state -- */
   const [isFormOpen, setIsFormOpen] = useState(false);
 
@@ -457,15 +466,21 @@ function HomePage() {
           thumbnail: fSpot.thumbnail,
           firebaseId: fSpot.firebaseId,
           userId: user.uid,
+          pendingSync: false,
         });
+      } else if (existing.pendingSync && existing.id !== undefined) {
+        // Spot confirmed in Firestore — clear pending flag
+        await db.spots.update(existing.id, { pendingSync: false });
       }
     }
 
-    // Remove local spots whose firebaseId no longer exists in Firestore
+    // Remove local spots whose firebaseId no longer exists in Firestore.
+    // IMPORTANT: Skip spots with pendingSync — they haven't been uploaded yet
+    // and will appear in Firestore once the device is back online.
     const firestoreIds = new Set(firestoreSpots.map((s) => s.firebaseId));
     const localSpots = await db.spots.where("userId").equals(user.uid).toArray();
     for (const local of localSpots) {
-      if (local.firebaseId && !firestoreIds.has(local.firebaseId)) {
+      if (local.firebaseId && !firestoreIds.has(local.firebaseId) && !local.pendingSync) {
         if (local.id !== undefined) {
           await db.images.where("spotId").equals(local.id).delete();
           await db.spots.delete(local.id);
@@ -479,6 +494,24 @@ function HomePage() {
     const unsubscribe = subscribeToSpots(user.uid, syncSpots);
     return unsubscribe;
   }, [user, syncSpots]);
+
+  /* -- Offline sync listener -- */
+  useEffect(() => {
+    if (!user) return;
+
+    const cleanup = startOnlineListener(
+      user.uid,
+      (online) => setIsOnline(online),
+      (syncedCount) => {
+        if (syncedCount > 0) {
+          setSyncToastMsg(`✓ Synced ${syncedCount} offline log${syncedCount > 1 ? "s" : ""}`);
+          setTimeout(() => setSyncToastMsg(null), 3500);
+        }
+      },
+    );
+
+    return cleanup;
+  }, [user]);
 
   const [search, setSearch] = useState("");
   const prevSearchRef = useRef("");
@@ -802,11 +835,13 @@ function HomePage() {
 
       const firebaseId = generateSpotId(user.uid);
 
+      // ---- 1. ALWAYS save locally first (instant, works offline) ----
       const spotId = await db.transaction("rw", db.spots, db.images, async () => {
         const localId = await db.spots.add({
           ...spotData,
           firebaseId,
           userId: user.uid,
+          pendingSync: true, // Mark as needing cloud sync
         });
 
         if (compressedBlob) {
@@ -820,28 +855,17 @@ function HomePage() {
         return localId;
       });
 
-      await writeSpotToFirestore(user.uid, firebaseId, spotData);
+      console.log(`[KeepCheck] Spot saved locally (id: ${spotId}, firebase: ${firebaseId})`);
 
-      if (compressedBlob) {
-        try {
-          const reader = new FileReader();
-          const base64 = await new Promise<string>((resolve, reject) => {
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(compressedBlob!);
-          });
-          await addImageToFirestore(user.uid, {
-            spotFirebaseId: firebaseId,
-            base64,
-            createdAt: Date.now(),
-          });
-        } catch (imgUploadErr) {
-          console.warn("[KeepCheck] Image upload to Firestore failed (will retry on next sync):", imgUploadErr);
-        }
+      // ---- 2. Attempt Firestore sync in background (non-blocking) ----
+      const savedSpot = await db.spots.get(spotId);
+      if (savedSpot) {
+        syncSpotToFirestore(user.uid, savedSpot).catch((err) => {
+          console.warn("[KeepCheck] Background Firestore sync failed (will retry when online):", err);
+        });
       }
 
-      console.log(`[KeepCheck] Spot saved (local: ${spotId}, firebase: ${firebaseId})`);
-
+      // ---- 3. Reset form & show success ----
       setName("");
       setCategory("Restaurant");
       setRating(7);
@@ -881,17 +905,21 @@ function HomePage() {
 
       await new Promise((resolve) => setTimeout(resolve, 400));
 
+      // Delete locally first (always works)
       await db.transaction("rw", db.spots, db.images, async () => {
         await db.images.where("spotId").equals(id).delete();
         await db.spots.delete(id);
       });
 
+      // Attempt Firestore delete (non-blocking)
       if (spot?.firebaseId && user) {
         try {
           await deleteImagesForSpotFromFirestore(user.uid, spot.firebaseId);
           await deleteSpotFromFirestore(user.uid, spot.firebaseId);
         } catch (fireErr) {
-          console.warn("[KeepCheck] Firestore delete failed (offline?):", fireErr);
+          console.warn("[KeepCheck] Firestore delete failed — queued for retry when online:", fireErr);
+          // Queue for retry when back online
+          queuePendingDelete(user.uid, spot.firebaseId);
         }
       }
 
@@ -942,8 +970,24 @@ function HomePage() {
         <div className="animate-blob-3 absolute top-1/2 left-1/3 h-56 w-56 rounded-full bg-category-restaurant/10" />
       </div>
 
+      {/* ---- Offline Banner ---- */}
+      {!isOnline && (
+        <div className="offline-banner fixed top-0 left-0 right-0 z-[100] flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold">
+          <WifiOff className="h-4 w-4 animate-pulse" />
+          <span>You&apos;re offline — logs are saved locally and will sync when reconnected</span>
+        </div>
+      )}
+
+      {/* ---- Sync Toast ---- */}
+      {syncToastMsg && (
+        <div className="sync-toast fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
+          <Cloud className="h-4 w-4" />
+          <span>{syncToastMsg}</span>
+        </div>
+      )}
+
       {/* ---- Header ---- */}
-      <header className="relative z-40 mb-6 sm:mb-8 gsap-header gsap-reveal">
+      <header className={`relative z-40 mb-6 sm:mb-8 gsap-header gsap-reveal ${!isOnline ? 'mt-10' : ''}`}>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold tracking-tight text-text-primary">
@@ -1050,6 +1094,12 @@ function HomePage() {
                       index={index}
                       onClick={() => spot.id !== undefined && setSelectedSpotId(spot.id)}
                     />
+                    {/* Pending sync badge */}
+                    {spot.pendingSync && (
+                      <div className="pending-sync-badge" title="Waiting to sync to cloud">
+                        <CloudOff className="h-3 w-3" />
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1185,6 +1235,13 @@ function HomePage() {
                     </div>
                     
                     <div className="flex items-center gap-3.5 flex-shrink-0">
+                      {/* Pending sync indicator in list view */}
+                      {spot.pendingSync && (
+                        <span className="pending-sync-pill" title="Pending sync">
+                          <CloudOff className="h-3 w-3" />
+                          <span className="hidden sm:inline">Offline</span>
+                        </span>
+                      )}
                       <span className="font-bold font-mono text-accent text-xs bg-bg/50 shadow-neu-inset px-2.5 py-1 rounded-full">
                         ★ {spot.rating}
                       </span>

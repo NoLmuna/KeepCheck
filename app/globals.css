@@ -543,5 +543,76 @@ body {
   will-change: transform, opacity;
 }
 
+/* ================================================================== */
+/*  OFFLINE SYNC UI                                                    */
+/* ================================================================== */
+
+/* Fixed offline banner at the top */
+.offline-banner {
+  background: linear-gradient(135deg, #b45309, #d97706);
+  color: #fef3c7;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(180, 83, 9, 0.35), 0 1px 3px rgba(0, 0, 0, 0.2);
+  animation: offline-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  letter-spacing: 0.02em;
+}
+
+@keyframes offline-slide-in {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Sync toast (success notification when reconnected) */
+.sync-toast {
+  background: linear-gradient(135deg, #065f46, #047857);
+  color: #d1fae5;
+  box-shadow: 0 8px 32px rgba(4, 120, 87, 0.4), var(--neu-shadow-raised);
+  animation: toast-pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes toast-pop-in {
+  0% { transform: translate(-50%, -20px) scale(0.85); opacity: 0; }
+  100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+}
+
+/* Pending sync badge on carousel cards */
+.pending-sync-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #b45309, #d97706);
+  color: #fef3c7;
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.4);
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 2px 8px rgba(180, 83, 9, 0.4); transform: scale(1); }
+  50% { box-shadow: 0 2px 16px rgba(180, 83, 9, 0.7); transform: scale(1.08); }
+}
+
+/* Pending sync pill in activity feed list */
+.pending-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #b45309, #d97706);
+  color: #fef3c7;
+  box-shadow: 0 1px 4px rgba(180, 83, 9, 0.3);
+  white-space: nowrap;
+}
 
 
