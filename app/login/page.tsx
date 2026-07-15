@@ -77,7 +77,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   /** The app's web URL, used in the standalone PWA guidance message. */
-  const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
+  const [appUrl, setAppUrl] = useState(process.env.NEXT_PUBLIC_APP_URL ?? "");
+  useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_APP_URL) {
+      setAppUrl(window.location.origin);
+    }
+  }, []);
 
   // Redirect if already logged in.
   useEffect(() => {
@@ -169,7 +174,7 @@ export default function LoginPage() {
               reopen KeepCheck from your home screen &mdash; you&apos;ll be logged in automatically.
             </p>
             <a
-              href={APP_URL}
+              href={appUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded-xl bg-accent/10 px-4 py-2.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
@@ -180,7 +185,7 @@ export default function LoginPage() {
               Open in Safari
             </a>
             <p className="mt-3 text-[10px] text-text-secondary/50">
-              {APP_URL}
+              {appUrl}
             </p>
           </div>
         ) : (

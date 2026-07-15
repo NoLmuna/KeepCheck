@@ -138,6 +138,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   >([]);
   const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
 
+  // Standalone PWA detection — must be in useState+useEffect to avoid
+  // accessing `window` during SSR/prerendering (where it doesn't exist).
+  const [isStandalone, setIsStandalone] = useState(false);
+  useEffect(() => {
+    setIsStandalone(isStandalonePWA());
+  }, []);
+
   /*
    * Loading-state strategy for signInWithRedirect:
    *
@@ -302,7 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // (popup blocked by WKWebView, redirect blocked by ITP). The user must sign
   // in via a normal Safari tab first — the shared origin storage means the
   // session will be available when the PWA is reopened.
-  const standalonePWASignInBlocked = !loading && isStandalonePWA() && !user && !cachedSession;
+  const standalonePWASignInBlocked = !loading && isStandalone && !user && !cachedSession;
 
   return (
     <AuthContext.Provider
