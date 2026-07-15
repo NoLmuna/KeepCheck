@@ -6,14 +6,11 @@ import {
   useEffect,
   useState,
   useCallback,
-  useRef,
   type ReactNode,
 } from "react";
 import {
   onAuthStateChanged,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   signOut as firebaseSignOut,
   GoogleAuthProvider,
   browserPopupRedirectResolver,
@@ -93,23 +90,6 @@ function clearCachedSession(): void {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  PWA standalone detection                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * Detects if the app is running in installed PWA / standalone mode.
- *
- * iOS Safari standalone (WKWebView) blocks `signInWithPopup`, so we
- * must fall back to `signInWithRedirect` when this returns `true`.
- */
-function isStandalonePWA(): boolean {
-  if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (navigator as unknown as { standalone?: boolean }).standalone === true
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Context                                                            */
@@ -145,26 +125,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Handle redirect result (iOS PWA standalone flow).
-  // Runs once on mount — if the user just returned from a signInWithRedirect,
-  // this resolves the pending credential and fires onAuthStateChanged.
-  const redirectHandled = useRef(false);
-  useEffect(() => {
-    if (redirectHandled.current) return;
-    redirectHandled.current = true;
-
-    getRedirectResult(getFirebaseAuth())
-      .then((result) => {
-        if (result?.user) {
-          console.log("[KeepCheck] Redirect sign-in resolved:", result.user.email);
-          saveToQuickLogin(result.user);
-        }
-      })
-      .catch((err) => {
-        console.warn("[KeepCheck] getRedirectResult error (non-fatal):", err);
-      });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const saveToQuickLogin = useCallback((u: User) => {
     setQuickLoginAccounts((prev: QuickLoginAccount[]) => {
@@ -209,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, [saveToQuickLogin]);
 
-  // Sign in with Google — uses redirect on iOS PWA, popup everywhere else.
+  // Sign in with Google — always uses popup (iOS 16.4+ supports popups in PWAs).
   const signInWithGoogle = useCallback(async (email?: string) => {
     const provider = new GoogleAuthProvider();
     if (email) {
@@ -220,16 +180,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const auth = getFirebaseAuth();
 
-    if (isStandalonePWA()) {
-      // iOS standalone / installed PWA — popup is blocked by WKWebView.
-      // signInWithRedirect navigates away; getRedirectResult (above) resolves
-      // the credential when the app reloads after the redirect.
-      console.log("[KeepCheck] Standalone PWA detected — using signInWithRedirect");
-      await signInWithRedirect(auth, provider);
-      return; // page will navigate away
-    }
-
-    // Desktop / mobile browser — popup is fine.
     try {
       const result = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
       saveToQuickLogin(result.user);
