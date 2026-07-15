@@ -615,4 +615,44 @@ body {
   white-space: nowrap;
 }
 
+/* ================================================================== */
+/*  UI PERFORMANCE & VIRTUALIZATION OPTIMIZATIONS                       */
+/* ================================================================== */
+
+/* Virtualization performance helper for list feed items */
+.feed-list-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 82px;
+}
+
+/* Performance boundary for continuous gooey SVG blobs to avoid main-thread paint invalidations */
+.blob-container {
+  contain: strict;
+  will-change: transform;
+}
+
+.animate-blob-1, .animate-blob-2, .animate-blob-3 {
+  will-change: transform;
+}
+
+/* Disable high-cost effects if user requests reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob-1,
+  .animate-blob-2,
+  .animate-blob-3,
+  .animate-float,
+  .animate-page-enter,
+  .animate-card-enter,
+  .animate-sheet-enter,
+  .animate-modal-enter,
+  .animate-backdrop,
+  .offline-banner,
+  .sync-toast,
+  .pending-sync-badge {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+
 

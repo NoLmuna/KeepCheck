@@ -30,16 +30,65 @@ export interface QuickLoginAccount {
   lastLoginAt: number;
 }
 
+/** Lightweight cached session stored in localStorage for instant offline access. */
+export interface CachedSession {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+}
+
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   quickLoginAccounts: QuickLoginAccount[];
+  /** Cached session from localStorage — available instantly, even offline. */
+  cachedSession: CachedSession | null;
 }
 
 const QUICK_LOGIN_KEY = "keepcheck-quick-login";
+const SESSION_CACHE_KEY = "keepcheck-session";
 const MAX_QUICK_LOGIN = 5;
+
+/* ------------------------------------------------------------------ */
+/*  Session cache helpers                                              */
+/* ------------------------------------------------------------------ */
+
+function loadCachedSession(): CachedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.uid === "string") return parsed as CachedSession;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedSession(user: User): void {
+  try {
+    const session: CachedSession = {
+      uid: user.uid,
+      displayName: user.displayName,
+      email: user.email,
+      photoURL: user.photoURL,
+    };
+    localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(session));
+  } catch {
+    /* storage full — best effort */
+  }
+}
+
+function clearCachedSession(): void {
+  try {
+    localStorage.removeItem(SESSION_CACHE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Context                                                            */
@@ -57,14 +106,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [quickLoginAccounts, setQuickLoginAccounts] = useState<
     QuickLoginAccount[]
   >([]);
+  const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
 
-  // Load quick-login history from localStorage on mount.
+  // Load cached session + quick-login history from localStorage on mount.
   useEffect(() => {
     try {
       const stored = localStorage.getItem(QUICK_LOGIN_KEY);
       if (stored) setQuickLoginAccounts(JSON.parse(stored));
     } catch {
       // Ignore parse errors.
+    }
+
+    // Load cached session for instant offline rendering
+    const cached = loadCachedSession();
+    if (cached) {
+      setCachedSession(cached);
     }
   }, []);
 
@@ -99,6 +155,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (firebaseUser) {
         saveToQuickLogin(firebaseUser);
+        // Persist session for offline access
+        saveCachedSession(firebaseUser);
+        setCachedSession({
+          uid: firebaseUser.uid,
+          displayName: firebaseUser.displayName,
+          email: firebaseUser.email,
+          photoURL: firebaseUser.photoURL,
+        });
       }
     });
     return unsubscribe;
@@ -124,6 +188,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Sign out.
   const signOut = useCallback(async () => {
     console.log("[KeepCheck AuthContext] signOut called");
+    // Clear cached session immediately
+    clearCachedSession();
+    setCachedSession(null);
     // Trigger Firebase sign-out in the background.
     firebaseSignOut(getFirebaseAuth())
       .then(() => {
@@ -139,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, signInWithGoogle, signOut, quickLoginAccounts }}
+      value={{ user, loading, signInWithGoogle, signOut, quickLoginAccounts, cachedSession }}
     >
       {children}
     </AuthContext.Provider>

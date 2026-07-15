@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, memo, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type FoodSpotLog, type SpotCategory } from "./db";
 import { makeThumbnail, compressToBlob } from "@/utils/image";
@@ -32,9 +32,21 @@ type SortMode = "newest" | "highest" | "lowest";
 type CategoryFilter = "All" | SpotCategory;
 
 /* ------------------------------------------------------------------ */
+/*  Debounce hook                                                      */
+/* ------------------------------------------------------------------ */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Theme toggle                                                       */
 /* ------------------------------------------------------------------ */
-function ThemeToggle({
+const ThemeToggle = memo(function ThemeToggle({
   dark,
   onToggle,
 }: {
@@ -63,12 +75,12 @@ function ThemeToggle({
       )}
     </button>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Gooey Category Selector Component                                  */
 /* ------------------------------------------------------------------ */
-function CategoryPills({
+const CategoryPills = memo(function CategoryPills({
   value,
   onChange,
 }: {
@@ -110,12 +122,12 @@ function CategoryPills({
       </button>
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Gooey Rating Selector Component                                    */
 /* ------------------------------------------------------------------ */
-function RatingPills({
+const RatingPills = memo(function RatingPills({
   value,
   onChange,
 }: {
@@ -155,12 +167,12 @@ function RatingPills({
       })}
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Category badge (card display)                                      */
 /* ------------------------------------------------------------------ */
-function CategoryBadge({ category }: { category: SpotCategory }) {
+const CategoryBadge = memo(function CategoryBadge({ category }: { category: SpotCategory }) {
   const bg = category === "Cafe" ? "bg-category-cafe" : "bg-category-restaurant";
   const label = category === "Cafe" ? "☕ Cafe" : "🍽️ Restaurant";
 
@@ -171,15 +183,14 @@ function CategoryBadge({ category }: { category: SpotCategory }) {
       {label}
     </span>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Spot card (neumorphic)                                             */
 /* ------------------------------------------------------------------ */
-function SpotCard({
+const SpotCard = memo(function SpotCard({
   spot,
   onClick,
-  index,
 }: {
   spot: FoodSpotLog;
   onClick: () => void;
@@ -212,6 +223,7 @@ function SpotCard({
             src={spot.thumbnail}
             alt={`Photo of ${spot.name}`}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
           />
           {/* Rating badge overlay */}
@@ -249,12 +261,12 @@ function SpotCard({
       </div>
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Pill button (neumorphic)                                           */
 /* ------------------------------------------------------------------ */
-function PillButton({
+const PillButton = memo(function PillButton({
   label,
   active,
   onClick,
@@ -276,7 +288,7 @@ function PillButton({
       {label}
     </button>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  User avatar/profile button                                         */
@@ -359,12 +371,80 @@ function UserProfile({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Activity Feed List Item (memoized)                                  */
+/* ------------------------------------------------------------------ */
+const FeedListItem = memo(function FeedListItem({
+  spot,
+  onSelect,
+  onDelete,
+}: {
+  spot: FoodSpotLog;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      onClick={onSelect}
+      className="feed-list-item neu-button p-4 flex items-center justify-between gap-3 text-sm cursor-pointer hover:bg-bg/85 relative transition-all"
+    >
+      <div className="min-w-0 flex-1 flex items-center gap-3.5">
+        <span className="text-2xl flex-shrink-0">{spot.category === "Cafe" ? "☕" : "🍽️"}</span>
+        <div className="min-w-0">
+          <p className="font-semibold text-text-primary truncate text-base">{spot.name}</p>
+          <div className="flex items-center gap-2.5 mt-1">
+            <span className="text-[10px] text-text-secondary/60 font-mono flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {new Date(spot.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </span>
+            <span className="text-text-secondary/20">•</span>
+            {spot.comment ? (
+              <p className="text-xs text-text-secondary truncate max-w-[200px] sm:max-w-xs md:max-w-md">
+                {spot.comment}
+              </p>
+            ) : (
+              <span className="text-xs text-text-secondary/40 italic">No notes</span>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-3.5 flex-shrink-0">
+        {/* Pending sync indicator in list view */}
+        {spot.pendingSync && (
+          <span className="pending-sync-pill" title="Pending sync">
+            <CloudOff className="h-3 w-3" />
+            <span className="hidden sm:inline">Offline</span>
+          </span>
+        )}
+        <span className="font-bold font-mono text-accent text-xs bg-bg/50 shadow-neu-inset px-2.5 py-1 rounded-full">
+          ★ {spot.rating}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="text-text-secondary/50 hover:text-red-500 transition-colors p-1"
+          aria-label="Delete log"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+});
 
 /* ------------------------------------------------------------------ */
 /*  Main page                                                          */
 /* ------------------------------------------------------------------ */
 function HomePage() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, cachedSession } = useAuth();
+
+  // Effective UID: use real user's UID when available, fall back to cached session
+  const effectiveUid = user?.uid ?? cachedSession?.uid ?? null;
+
   const [name, setName] = useState("");
   const [category, setCategory] = useState<SpotCategory>("Restaurant");
   const [rating, setRating] = useState(7);
@@ -399,6 +479,13 @@ function HomePage() {
   const modalGooeyBgRef = useRef<HTMLDivElement>(null);
   const backdropOverlayRef = useRef<HTMLDivElement>(null);
   const hasAnimatedRef = useRef(false);
+
+  /* -- Search with debouncing -- */
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 150);
+
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [catFilter, setCatFilter] = useState<CategoryFilter>("All");
 
   useEffect(() => {
     // Read stored theme preference
@@ -451,7 +538,7 @@ function HomePage() {
     return () => URL.revokeObjectURL(url);
   }, [imageFile]);
 
-  /* -- Firestore real-time sync -- */
+  /* -- Firestore real-time sync (only when online and user is available) -- */
   const syncSpots = useCallback(async (changes: FirestoreSpotChange[]) => {
     if (!user) return;
 
@@ -474,7 +561,6 @@ function HomePage() {
           });
         } else if (existing.id !== undefined) {
           // Build an update payload with only the fields that actually changed
-          // to avoid unnecessary Dexie writes and re-renders
           const updates: Partial<FoodSpotLog> = {};
           if (existing.name !== fSpot.name) updates.name = fSpot.name;
           if (existing.category !== (fSpot.category ?? "Restaurant")) updates.category = fSpot.category ?? "Restaurant";
@@ -503,16 +589,13 @@ function HomePage() {
     if (!user) return;
 
     for (const fImg of firestoreImages) {
-      // Find the local spot this image belongs to
       const spot = await db.spots.where("firebaseId").equals(fImg.spotFirebaseId).first();
       if (!spot || spot.id === undefined) continue;
 
-      // Check if we already have this image locally
       const existingImages = await db.images.where("spotId").equals(spot.id).toArray();
       const alreadyHas = existingImages.some((img) => img.firebaseId === fImg.firebaseId);
       if (alreadyHas) continue;
 
-      // Convert base64 data URL to Blob for local storage
       try {
         const response = await fetch(fImg.base64);
         const blob = await response.blob();
@@ -528,6 +611,7 @@ function HomePage() {
     }
   }, [user]);
 
+  // Only subscribe to Firestore when we have a real authenticated user
   useEffect(() => {
     if (!user) return;
     const unsubSpots = subscribeToSpots(user.uid, syncSpots);
@@ -556,16 +640,11 @@ function HomePage() {
     return cleanup;
   }, [user]);
 
-  const [search, setSearch] = useState("");
-  const prevSearchRef = useRef("");
-  const [sortMode, setSortMode] = useState<SortMode>("newest");
-  const [catFilter, setCatFilter] = useState<CategoryFilter>("All");
-
-  // Reactive query — re-renders whenever `spots` table changes
+  // Reactive query — uses effectiveUid so data loads from Dexie even before Firebase auth resolves
   const spots = useLiveQuery(() => {
-    if (!user) return [];
-    return db.spots.where("userId").equals(user.uid).reverse().sortBy("createdAt");
-  }, [user]);
+    if (!effectiveUid) return [];
+    return db.spots.where("userId").equals(effectiveUid).reverse().sortBy("createdAt");
+  }, [effectiveUid]);
 
   /** Derived: filtered + sorted view of spots. */
   const filteredSpots = useMemo(() => {
@@ -637,11 +716,8 @@ function HomePage() {
 
   // 1. Page entrance animation timeline (Run once on mount when spots resolve)
   useEffect(() => {
-    if (!user || spots === undefined) return;
+    if (!effectiveUid || spots === undefined) return;
 
-    // Check if the header is already visible. If it is and we've already
-    // animated, skip running it again to prevent glitchy re-runs.
-    // If it's invisible (e.g. on mount or after Fast Refresh), run the animation.
     const headerEl = document.querySelector(".gsap-header");
     const isAlreadyVisible = headerEl && window.getComputedStyle(headerEl).opacity === "1";
     if (isAlreadyVisible && hasAnimatedRef.current) return;
@@ -695,34 +771,9 @@ function HomePage() {
     });
 
     return () => ctx.revert();
-  }, [user, spots]);
+  }, [effectiveUid, spots]);
 
-  // 2. Stagger feed items whenever spots or filters update (skips animation during active search typing to prevent lag)
-  useEffect(() => {
-    const isSearching = search !== prevSearchRef.current;
-    prevSearchRef.current = search;
-
-    if (isSearching) return; // skip staggers on search changes to keep typing smooth
-
-    const elements = document.querySelectorAll(".gsap-list-item");
-    if (elements.length > 0) {
-      gsap.fromTo(
-        elements,
-        { opacity: 0, y: 15, scale: 0.98 },
-        {
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          duration: 0.4,
-          stagger: 0.03,
-          ease: "power2.out",
-          overwrite: "auto"
-        }
-      );
-    }
-  }, [filteredSpots, search]);
-
-  // 3. Modal Form slide in/out animations
+  // 2. Modal Form slide in/out animations
   const openFormModal = () => {
     setIsFormOpen(true);
   };
@@ -815,7 +866,7 @@ function HomePage() {
     }
   }, [isFormOpen]);
 
-  // 4. Elastic animations for FAB hover/clicks
+  // 3. Elastic animations for FAB hover/clicks
   const handleFABHover = (enter: boolean) => {
     gsap.to(".gsap-fab", {
       scale: enter ? 1.15 : 1,
@@ -1012,6 +1063,11 @@ function HomePage() {
     }
   }
 
+  // Memoized profile props for UserProfile to avoid re-creating on every render
+  const profilePhotoURL = user?.photoURL ?? cachedSession?.photoURL ?? null;
+  const profileDisplayName = user?.displayName ?? cachedSession?.displayName ?? null;
+  const profileEmail = user?.email ?? cachedSession?.email ?? null;
+
   /* ---------- render ---------- */
 
   return (
@@ -1037,8 +1093,8 @@ function HomePage() {
         </defs>
       </svg>
 
-      {/* ---- Background blobs ---- */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-40" style={{ filter: "url(#gooey-bg)" }}>
+      {/* ---- Background blobs (GPU-contained) ---- */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-40 blob-container" style={{ filter: "url(#gooey-bg)" }}>
         <div className="animate-blob-1 absolute -top-32 -left-32 h-80 w-80 rounded-full bg-accent/10" />
         <div className="animate-blob-2 absolute -bottom-40 -right-24 h-96 w-96 rounded-full bg-category-cafe/10" />
         <div className="animate-blob-3 absolute top-1/2 left-1/3 h-56 w-56 rounded-full bg-category-restaurant/10" />
@@ -1076,7 +1132,7 @@ function HomePage() {
             <ThemeToggle dark={dark} onToggle={() => setDark((d) => !d)} />
             
             {/* Desktop Add Spot button */}
-            {user && (
+            {effectiveUid && (
               <button
                 type="button"
                 onClick={openFormModal}
@@ -1087,11 +1143,11 @@ function HomePage() {
               </button>
             )}
 
-            {user && (
+            {effectiveUid && (
               <UserProfile
-                photoURL={user.photoURL}
-                displayName={user.displayName}
-                email={user.email}
+                photoURL={profilePhotoURL}
+                displayName={profileDisplayName}
+                email={profileEmail}
                 onSignOut={signOut}
               />
             )}
@@ -1243,15 +1299,15 @@ function HomePage() {
                 <input
                   id="search-logs"
                   type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search spots by name or notes…"
                   className="neu-input w-full pl-11 pr-4"
                 />
-                {search && (
+                {searchInput && (
                   <button
                     type="button"
-                    onClick={() => setSearch("")}
+                    onClick={() => setSearchInput("")}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-text-secondary/60 hover:text-accent font-bold p-1 cursor-pointer"
                   >
                     ✕
@@ -1282,56 +1338,12 @@ function HomePage() {
               /* List/Table View Mode */
               <div className="neu-raised p-4 space-y-3 pt-2">
                 {filteredSpots && filteredSpots.map((spot) => (
-                  <div
+                  <FeedListItem
                     key={spot.id}
-                    onClick={() => spot.id !== undefined && setSelectedSpotId(spot.id)}
-                    className="gsap-list-item neu-button p-4 flex items-center justify-between gap-3 text-sm cursor-pointer hover:bg-bg/85 relative transition-all"
-                  >
-                    <div className="min-w-0 flex-1 flex items-center gap-3.5">
-                      <span className="text-2xl flex-shrink-0">{spot.category === "Cafe" ? "☕" : "🍽️"}</span>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-text-primary truncate text-base">{spot.name}</p>
-                        <div className="flex items-center gap-2.5 mt-1">
-                          <span className="text-[10px] text-text-secondary/60 font-mono flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {new Date(spot.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                          </span>
-                          <span className="text-text-secondary/20">•</span>
-                          {spot.comment ? (
-                            <p className="text-xs text-text-secondary truncate max-w-[200px] sm:max-w-xs md:max-w-md">
-                              {spot.comment}
-                            </p>
-                          ) : (
-                            <span className="text-xs text-text-secondary/40 italic">No notes</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-3.5 flex-shrink-0">
-                      {/* Pending sync indicator in list view */}
-                      {spot.pendingSync && (
-                        <span className="pending-sync-pill" title="Pending sync">
-                          <CloudOff className="h-3 w-3" />
-                          <span className="hidden sm:inline">Offline</span>
-                        </span>
-                      )}
-                      <span className="font-bold font-mono text-accent text-xs bg-bg/50 shadow-neu-inset px-2.5 py-1 rounded-full">
-                        ★ {spot.rating}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          spot.id !== undefined && deleteEntry(spot.id);
-                        }}
-                        className="text-text-secondary/50 hover:text-red-500 transition-colors p-1"
-                        aria-label="Delete log"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
+                    spot={spot}
+                    onSelect={() => spot.id !== undefined && setSelectedSpotId(spot.id)}
+                    onDelete={() => spot.id !== undefined && deleteEntry(spot.id)}
+                  />
                 ))}
               </div>
             )}
@@ -1561,7 +1573,7 @@ function HomePage() {
       )}
 
       {/* ---- Floating Action Button (FAB) ---- */}
-      {user && (
+      {effectiveUid && (
         <button
           type="button"
           onClick={openFormModal}

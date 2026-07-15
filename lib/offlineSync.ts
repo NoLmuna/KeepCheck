@@ -69,12 +69,20 @@ export function queuePendingDelete(uid: string, firebaseId: string): void {
 /**
  * Attempt to sync a single pending spot to Firestore.
  * Returns `true` if successful, `false` if it should be retried later.
+ *
+ * Pre-checks `navigator.onLine` to avoid unnecessary Firestore errors
+ * when clearly offline.
  */
 export async function syncSpotToFirestore(
   uid: string,
   spot: FoodSpotLog,
 ): Promise<boolean> {
   if (!spot.firebaseId) return false;
+
+  // Skip if we're clearly offline — saves error noise and CPU
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return false;
+  }
 
   try {
     // Write the spot document
@@ -133,10 +141,15 @@ let _sweepInProgress = false;
 
 /**
  * Retry all pending spots and deletes. De-duped so only one sweep
- * runs at a time.
+ * runs at a time. Each item is wrapped in its own try/catch so one
+ * failure doesn't block the rest.
  */
 export async function sweepPendingSync(uid: string): Promise<number> {
   if (_sweepInProgress) return 0;
+
+  // Don't even attempt if clearly offline
+  if (typeof navigator !== "undefined" && !navigator.onLine) return 0;
+
   _sweepInProgress = true;
 
   let synced = 0;
@@ -159,8 +172,13 @@ export async function sweepPendingSync(uid: string): Promise<number> {
     }
 
     for (const spot of spotsToSync.values()) {
-      const ok = await syncSpotToFirestore(uid, spot);
-      if (ok) synced++;
+      try {
+        const ok = await syncSpotToFirestore(uid, spot);
+        if (ok) synced++;
+      } catch (spotErr) {
+        // Per-item catch: don't let one failure block the rest
+        console.warn(`[OfflineSync] Per-item sync error for "${spot.name}":`, spotErr);
+      }
     }
 
     // 2. Retry pending deletes

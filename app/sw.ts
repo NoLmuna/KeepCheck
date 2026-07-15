@@ -1,5 +1,5 @@
 import { defaultCache } from "@serwist/next/worker";
-import { type PrecacheEntry, Serwist, cacheNames } from "serwist";
+import { type PrecacheEntry, Serwist, cacheNames, StaleWhileRevalidate, ExpirationPlugin } from "serwist";
 
 declare const self: ServiceWorkerGlobalScope & {
   __SW_MANIFEST: (PrecacheEntry | string)[] | undefined;
@@ -13,7 +13,22 @@ const serwist = new Serwist({
   // so users never need a manual refresh to get the new SW.
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: defaultCache,
+  runtimeCaching: [
+    {
+      matcher: /^https:\/\/lh[0-9]*\.googleusercontent\.com\/.*/i,
+      handler: new StaleWhileRevalidate({
+        cacheName: "google-user-avatars",
+        plugins: [
+          new ExpirationPlugin({
+            maxEntries: 50,
+            maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+            maxAgeFrom: "last-used",
+          }),
+        ],
+      }),
+    },
+    ...defaultCache,
+  ],
   // Serve the precached /offline page when a NetworkFirst handler fails
   // for a navigation request (e.g. deep link the user has never visited).
   fallbacks: {
