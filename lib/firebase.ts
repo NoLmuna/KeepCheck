@@ -71,6 +71,7 @@ export function getFirebaseFirestore(): Firestore {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
+      ignoreUndefinedProperties: true,
     });
   } catch {
     // Already initialised (hot-reload).

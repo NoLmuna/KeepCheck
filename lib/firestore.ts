@@ -41,8 +41,14 @@ export async function writeSpotToFirestore(
   spot: Omit<FoodSpotLog, "id" | "firebaseId" | "userId">,
 ): Promise<void> {
   const docRef = doc(getFirebaseFirestore(), "users", uid, "spots", firebaseId);
+  
+  // Clean undefined properties to prevent Firestore error
+  const cleanedSpot = Object.fromEntries(
+    Object.entries(spot).filter(([_, v]) => v !== undefined)
+  );
+
   await setDoc(docRef, {
-    ...spot,
+    ...cleanedSpot,
     userId: uid,
   });
 }
