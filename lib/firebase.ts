@@ -4,6 +4,7 @@ import {
   indexedDBLocalPersistence,
   browserLocalPersistence,
   initializeAuth,
+  browserPopupRedirectResolver,
   type Auth,
 } from "firebase/auth";
 import {
@@ -54,6 +55,7 @@ export function getFirebaseAuth(): Auth {
   try {
     _auth = initializeAuth(app, {
       persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+      popupRedirectResolver: browserPopupRedirectResolver,
     });
   } catch {
     // Already initialised (hot-reload) — use existing instance.

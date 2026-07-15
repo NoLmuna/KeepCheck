@@ -11,10 +11,12 @@ import {
 } from "react";
 import {
   onAuthStateChanged,
+  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   signOut as firebaseSignOut,
   GoogleAuthProvider,
+  browserPopupRedirectResolver,
   type User,
 } from "firebase/auth";
 import { getFirebaseAuth } from "./firebase";
@@ -91,6 +93,27 @@ function clearCachedSession(): void {
   }
 }
 
+
+/* ------------------------------------------------------------------ */
+/*  PWA standalone detection                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Detects if the app is running as an installed / standalone PWA.
+ *
+ * In standalone WKWebView on iOS, signInWithPopup cannot open a separate
+ * window — so we must use signInWithRedirect there. In all other contexts
+ * (desktop browsers, regular Safari tabs) popup works and is more reliable
+ * because redirect-based auth is blocked by Safari ITP and Chrome's
+ * third-party storage partitioning.
+ */
+function isStandalonePWA(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as unknown as { standalone?: boolean }).standalone === true
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Context                                                            */
@@ -195,7 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         redirectResultResolved.current = true;
         maybeFinishLoading();
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Listen to Firebase auth state.
@@ -220,9 +243,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, [saveToQuickLogin, maybeFinishLoading]);
 
-  // Sign in with Google — uses redirect flow for iOS PWA (standalone WKWebView)
-  // compatibility. signInWithRedirect navigates away to Google's OAuth page;
-  // the getRedirectResult useEffect above catches the credential on reload.
+  // Sign in with Google.
+  //
+  // Uses signInWithPopup in normal browser tabs (desktop, mobile Safari, Chrome)
+  // because Firebase's redirect flow is broken by Safari ITP and Chrome's
+  // third-party storage partitioning (the auth relay iframe gets blocked).
+  //
+  // Uses signInWithRedirect ONLY in the installed standalone PWA, where
+  // WKWebView cannot host popup windows at all. The getRedirectResult()
+  // useEffect above handles the credential when the page reloads after
+  // the redirect round-trip.
   const signInWithGoogle = useCallback(async (email?: string) => {
     const provider = new GoogleAuthProvider();
     if (email) {
@@ -232,9 +262,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const auth = getFirebaseAuth();
-    // Page will navigate away to Google OAuth — no result to handle here.
-    await signInWithRedirect(auth, provider);
-  }, []);
+
+    if (isStandalonePWA()) {
+      // Standalone PWA (iOS home screen) — popup is blocked by WKWebView.
+      // Page navigates away; getRedirectResult() resolves the credential on reload.
+      console.log("[KeepCheck] Standalone PWA detected — using signInWithRedirect");
+      await signInWithRedirect(auth, provider, browserPopupRedirectResolver);
+      return; // page will navigate away
+    }
+
+    // Normal browser tab — popup works reliably here.
+    try {
+      const result = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
+      saveToQuickLogin(result.user);
+    } catch (error: unknown) {
+      // User closed the popup — not a real error.
+      const code = (error as { code?: string })?.code;
+      if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+        console.error("[KeepCheck] Google sign-in failed:", error);
+        throw error;
+      }
+    }
+  }, [saveToQuickLogin]);
 
   // Sign out.
   const signOut = useCallback(async () => {
