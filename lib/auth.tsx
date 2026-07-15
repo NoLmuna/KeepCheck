@@ -6,14 +6,15 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import {
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   GoogleAuthProvider,
-  browserPopupRedirectResolver,
   type User,
 } from "firebase/auth";
 import { getFirebaseAuth } from "./firebase";
@@ -103,11 +104,35 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
   const [quickLoginAccounts, setQuickLoginAccounts] = useState<
     QuickLoginAccount[]
   >([]);
   const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
+
+  /*
+   * Loading-state strategy for signInWithRedirect:
+   *
+   * After a redirect round-trip (Google OAuth → back to app), the page fully
+   * remounts. Two async checks race on startup:
+   *   1. onAuthStateChanged — fires once Firebase restores (or doesn't find)
+   *      a persisted credential from IndexedDB.
+   *   2. getRedirectResult — resolves the pending redirect credential, if any.
+   *
+   * If we set `loading = false` as soon as *either* resolves, there's a window
+   * where AuthGuard sees `loading=false, user=null` and flashes the sign-in
+   * screen before the other check delivers the user. To prevent this, we gate
+   * `loading` behind BOTH checks completing.
+   */
+  const authStateResolved = useRef(false);
+  const redirectResultResolved = useRef(false);
+  const [loading, setLoading] = useState(true);
+
+  /** Only flip `loading` to false once both async checks have finished. */
+  const maybeFinishLoading = useCallback(() => {
+    if (authStateResolved.current && redirectResultResolved.current) {
+      setLoading(false);
+    }
+  }, []);
 
   // Load cached session + quick-login history from localStorage on mount.
   useEffect(() => {
@@ -124,7 +149,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCachedSession(cached);
     }
   }, []);
-
 
   const saveToQuickLogin = useCallback((u: User) => {
     setQuickLoginAccounts((prev: QuickLoginAccount[]) => {
@@ -148,11 +172,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Resolve any pending redirect result (runs once on mount).
+  // After signInWithRedirect, the page reloads and this picks up the credential.
+  // On normal loads with no pending redirect, this resolves to null instantly.
+  const redirectHandled = useRef(false);
+  useEffect(() => {
+    if (redirectHandled.current) return;
+    redirectHandled.current = true;
+
+    getRedirectResult(getFirebaseAuth())
+      .then((result) => {
+        if (result?.user) {
+          console.log("[KeepCheck] Redirect sign-in resolved:", result.user.email);
+          saveToQuickLogin(result.user);
+        }
+      })
+      .catch((err) => {
+        // Non-fatal — this fires on every mount, including normal loads.
+        console.warn("[KeepCheck] getRedirectResult error (non-fatal):", err);
+      })
+      .finally(() => {
+        redirectResultResolved.current = true;
+        maybeFinishLoading();
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Listen to Firebase auth state.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (firebaseUser) => {
       setUser(firebaseUser);
-      setLoading(false);
+      authStateResolved.current = true;
+      maybeFinishLoading();
 
       if (firebaseUser) {
         saveToQuickLogin(firebaseUser);
@@ -167,9 +218,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
     return unsubscribe;
-  }, [saveToQuickLogin]);
+  }, [saveToQuickLogin, maybeFinishLoading]);
 
-  // Sign in with Google — always uses popup (iOS 16.4+ supports popups in PWAs).
+  // Sign in with Google — uses redirect flow for iOS PWA (standalone WKWebView)
+  // compatibility. signInWithRedirect navigates away to Google's OAuth page;
+  // the getRedirectResult useEffect above catches the credential on reload.
   const signInWithGoogle = useCallback(async (email?: string) => {
     const provider = new GoogleAuthProvider();
     if (email) {
@@ -179,19 +232,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const auth = getFirebaseAuth();
-
-    try {
-      const result = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
-      saveToQuickLogin(result.user);
-    } catch (error: unknown) {
-      // User closed popup — not an error.
-      const code = (error as { code?: string })?.code;
-      if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
-        console.error("[KeepCheck] Google sign-in failed:", error);
-        throw error;
-      }
-    }
-  }, [saveToQuickLogin]);
+    // Page will navigate away to Google OAuth — no result to handle here.
+    await signInWithRedirect(auth, provider);
+  }, []);
 
   // Sign out.
   const signOut = useCallback(async () => {
