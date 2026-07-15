@@ -5,6 +5,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/app/db";
 import { makeThumbnailFromBlob } from "@/utils/image";
 import { X, ImageOff, RefreshCw } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { writeSpotToFirestore } from "@/lib/firestore";
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -30,6 +32,7 @@ export default function SpotDetailModal({
     [spotId],
   );
 
+  const { user } = useAuth();
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
@@ -71,8 +74,28 @@ export default function SpotDetailModal({
     if (!image?.blob) return;
     setRegenerating(true);
     try {
+      const spot = await db.spots.get(spotId);
+      if (!spot) throw new Error("Spot not found locally");
+
       const newThumb = await makeThumbnailFromBlob(image.blob);
-      await db.spots.update(spotId, { thumbnail: newThumb });
+      await db.spots.update(spotId, { thumbnail: newThumb, pendingSync: true });
+
+      if (user && spot.firebaseId) {
+        try {
+          await writeSpotToFirestore(user.uid, spot.firebaseId, {
+            name: spot.name,
+            category: spot.category,
+            rating: spot.rating,
+            comment: spot.comment,
+            createdAt: spot.createdAt,
+            thumbnail: newThumb,
+          });
+          await db.spots.update(spotId, { pendingSync: false });
+        } catch (fireErr) {
+          console.warn("[KeepCheck] Firestore thumbnail sync failed, will retry on sweep:", fireErr);
+        }
+      }
+
       setRegenerated(true);
     } catch (err) {
       console.error("[KeepCheck] Thumbnail regeneration failed:", err);
@@ -80,7 +103,7 @@ export default function SpotDetailModal({
     } finally {
       setRegenerating(false);
     }
-  }, [image, spotId]);
+  }, [image, spotId, user]);
 
   /* ---- Render ---- */
   return (

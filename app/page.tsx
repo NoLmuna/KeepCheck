@@ -14,6 +14,7 @@ import {
   addImageToFirestore,
   deleteImagesForSpotFromFirestore,
   subscribeToSpots,
+  subscribeToImages,
 } from "@/lib/firestore";
 import {
   syncSpotToFirestore,
@@ -453,7 +454,7 @@ function HomePage() {
   const syncSpots = useCallback(async (firestoreSpots: (FoodSpotLog & { firebaseId: string })[]) => {
     if (!user) return;
 
-    // Sync each Firestore spot into local Dexie if missing
+    // Sync each Firestore spot into local Dexie — add if missing, update if changed
     for (const fSpot of firestoreSpots) {
       const existing = await db.spots.where("firebaseId").equals(fSpot.firebaseId).first();
       if (!existing) {
@@ -468,9 +469,21 @@ function HomePage() {
           userId: user.uid,
           pendingSync: false,
         });
-      } else if (existing.pendingSync && existing.id !== undefined) {
-        // Spot confirmed in Firestore — clear pending flag
-        await db.spots.update(existing.id, { pendingSync: false });
+      } else if (existing.id !== undefined) {
+        // Build an update payload with only the fields that actually changed
+        // to avoid unnecessary Dexie writes and re-renders
+        const updates: Partial<FoodSpotLog> = {};
+        if (existing.name !== fSpot.name) updates.name = fSpot.name;
+        if (existing.category !== (fSpot.category ?? "Restaurant")) updates.category = fSpot.category ?? "Restaurant";
+        if (existing.rating !== fSpot.rating) updates.rating = fSpot.rating;
+        if (existing.comment !== fSpot.comment) updates.comment = fSpot.comment;
+        if (existing.createdAt !== fSpot.createdAt) updates.createdAt = fSpot.createdAt;
+        if (existing.thumbnail !== fSpot.thumbnail) updates.thumbnail = fSpot.thumbnail;
+        if (existing.pendingSync) updates.pendingSync = false;
+
+        if (Object.keys(updates).length > 0) {
+          await db.spots.update(existing.id, updates);
+        }
       }
     }
 
@@ -489,11 +502,45 @@ function HomePage() {
     }
   }, [user]);
 
+  /* -- Firestore real-time image sync -- */
+  const syncImages = useCallback(async (firestoreImages: { firebaseId: string; spotFirebaseId: string; base64: string; createdAt: number }[]) => {
+    if (!user) return;
+
+    for (const fImg of firestoreImages) {
+      // Find the local spot this image belongs to
+      const spot = await db.spots.where("firebaseId").equals(fImg.spotFirebaseId).first();
+      if (!spot || spot.id === undefined) continue;
+
+      // Check if we already have this image locally
+      const existingImages = await db.images.where("spotId").equals(spot.id).toArray();
+      const alreadyHas = existingImages.some((img) => img.firebaseId === fImg.firebaseId);
+      if (alreadyHas) continue;
+
+      // Convert base64 data URL to Blob for local storage
+      try {
+        const response = await fetch(fImg.base64);
+        const blob = await response.blob();
+        await db.images.add({
+          spotId: spot.id,
+          blob,
+          createdAt: fImg.createdAt,
+          firebaseId: fImg.firebaseId,
+        });
+      } catch (err) {
+        console.warn("[KeepCheck] Failed to sync image from Firestore:", err);
+      }
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
-    const unsubscribe = subscribeToSpots(user.uid, syncSpots);
-    return unsubscribe;
-  }, [user, syncSpots]);
+    const unsubSpots = subscribeToSpots(user.uid, syncSpots);
+    const unsubImages = subscribeToImages(user.uid, syncImages);
+    return () => {
+      unsubSpots();
+      unsubImages();
+    };
+  }, [user, syncSpots, syncImages]);
 
   /* -- Offline sync listener -- */
   useEffect(() => {

@@ -122,3 +122,20 @@ export async function deleteImagesForSpotFromFirestore(
     .map((d) => deleteDoc(d.ref));
   await Promise.all(deleteOps);
 }
+
+/** Subscribe to real-time image updates. Returns an unsubscribe function. */
+export function subscribeToImages(
+  uid: string,
+  callback: (images: { firebaseId: string; spotFirebaseId: string; base64: string; createdAt: number }[]) => void,
+): Unsubscribe {
+  const q = query(imagesCol(uid), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot) => {
+    const images = snapshot.docs.map((d) => ({
+      firebaseId: d.id,
+      spotFirebaseId: d.data().spotFirebaseId as string,
+      base64: d.data().base64 as string,
+      createdAt: d.data().createdAt as number,
+    }));
+    callback(images);
+  });
+}
