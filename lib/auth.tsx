@@ -12,7 +12,6 @@ import {
 import {
   onAuthStateChanged,
   signInWithPopup,
-  signInWithRedirect,
   getRedirectResult,
   signOut as firebaseSignOut,
   GoogleAuthProvider,
@@ -49,6 +48,13 @@ interface AuthContextValue {
   quickLoginAccounts: QuickLoginAccount[];
   /** Cached session from localStorage — available instantly, even offline. */
   cachedSession: CachedSession | null;
+  /**
+   * True when the app is running as a standalone PWA and there is no existing
+   * session (user or cachedSession). In this state, sign-in cannot succeed
+   * because both popup (blocked by WKWebView) and redirect (blocked by ITP)
+   * fail. The login UI should show guidance to sign in via Safari instead.
+   */
+  standalonePWASignInBlocked: boolean;
 }
 
 const QUICK_LOGIN_KEY = "keepcheck-quick-login";
@@ -243,16 +249,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, [saveToQuickLogin, maybeFinishLoading]);
 
-  // Sign in with Google.
+  // Sign in with Google — popup flow only.
   //
-  // Uses signInWithPopup in normal browser tabs (desktop, mobile Safari, Chrome)
-  // because Firebase's redirect flow is broken by Safari ITP and Chrome's
-  // third-party storage partitioning (the auth relay iframe gets blocked).
-  //
-  // Uses signInWithRedirect ONLY in the installed standalone PWA, where
-  // WKWebView cannot host popup windows at all. The getRedirectResult()
-  // useEffect above handles the credential when the page reloads after
-  // the redirect round-trip.
+  // signInWithRedirect is NOT used: it fails silently in standalone PWAs due to
+  // Safari ITP blocking the cross-origin authDomain iframe, and also fails in
+  // normal browsers due to third-party storage partitioning. The standalone PWA
+  // dead-end is handled at the UI level (standalonePWASignInBlocked flag guides
+  // the user to sign in via Safari instead).
   const signInWithGoogle = useCallback(async (email?: string) => {
     const provider = new GoogleAuthProvider();
     if (email) {
@@ -263,15 +266,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const auth = getFirebaseAuth();
 
-    if (isStandalonePWA()) {
-      // Standalone PWA (iOS home screen) — popup is blocked by WKWebView.
-      // Page navigates away; getRedirectResult() resolves the credential on reload.
-      console.log("[KeepCheck] Standalone PWA detected — using signInWithRedirect");
-      await signInWithRedirect(auth, provider, browserPopupRedirectResolver);
-      return; // page will navigate away
-    }
-
-    // Normal browser tab — popup works reliably here.
     try {
       const result = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
       saveToQuickLogin(result.user);
@@ -304,9 +298,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  // Standalone PWA dead-end detection: sign-in cannot work in this environment
+  // (popup blocked by WKWebView, redirect blocked by ITP). The user must sign
+  // in via a normal Safari tab first — the shared origin storage means the
+  // session will be available when the PWA is reopened.
+  const standalonePWASignInBlocked = !loading && isStandalonePWA() && !user && !cachedSession;
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, signInWithGoogle, signOut, quickLoginAccounts, cachedSession }}
+      value={{ user, loading, signInWithGoogle, signOut, quickLoginAccounts, cachedSession, standalonePWASignInBlocked }}
     >
       {children}
     </AuthContext.Provider>

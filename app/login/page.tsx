@@ -71,10 +71,13 @@ function QuickLoginRow({
 /*  Login page                                                         */
 /* ------------------------------------------------------------------ */
 export default function LoginPage() {
-  const { user, loading, signInWithGoogle, quickLoginAccounts } = useAuth();
+  const { user, loading, signInWithGoogle, quickLoginAccounts, standalonePWASignInBlocked } = useAuth();
   const router = useRouter();
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** The app's web URL, used in the standalone PWA guidance message. */
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
 
   // Redirect if already logged in.
   useEffect(() => {
@@ -148,44 +151,81 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Google sign-in button */}
-        <button
-          type="button"
-          onClick={() => handleSignIn()}
-          disabled={signingIn}
-          className="neu-raised group flex w-full items-center justify-center gap-3 rounded-2xl px-6 py-4 text-sm font-semibold text-text-primary transition-all duration-300 hover:scale-[1.02] active:scale-[0.97] active:shadow-neu-inset disabled:opacity-50 cursor-pointer"
-        >
-          {signingIn ? (
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-text-secondary/30 border-t-accent" />
-          ) : (
-            <GoogleIcon />
-          )}
-          {signingIn ? "Signing in…" : "Continue with Google"}
-        </button>
-
-        {/* Error message */}
-        {error && (
-          <p className="mt-3 text-center text-xs text-red-500 animate-page-enter">
-            {error}
-          </p>
-        )}
-
-        {/* Quick login history */}
-        {quickLoginAccounts.length > 0 && (
-          <div className="mt-8 animate-page-enter" style={{ animationDelay: "150ms" }}>
-            <p className="mb-3 text-center text-xs font-medium uppercase tracking-wider text-text-secondary">
-              Recent accounts
-            </p>
-            <div className="flex flex-col gap-2.5">
-               {quickLoginAccounts.map((account) => (
-                <QuickLoginRow
-                  key={account.uid}
-                  account={account}
-                  onClick={() => handleSignIn(account.email || undefined)}
-                />
-              ))}
+        {/* Sign-in area */}
+        {standalonePWASignInBlocked ? (
+          /* ---- Standalone PWA dead-end guidance ---- */
+          <div className="neu-raised rounded-2xl p-5 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15">
+              <svg className="h-6 w-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
+            <h2 className="text-sm font-semibold text-text-primary mb-2">
+              Sign in via Safari first
+            </h2>
+            <p className="text-xs text-text-secondary leading-relaxed mb-4">
+              Sign-in isn&apos;t available directly from the installed app yet.
+              Open the link below in <strong>Safari</strong>, sign in there once, then
+              reopen KeepCheck from your home screen &mdash; you&apos;ll be logged in automatically.
+            </p>
+            <a
+              href={APP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-accent/10 px-4 py-2.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              Open in Safari
+            </a>
+            <p className="mt-3 text-[10px] text-text-secondary/50">
+              {APP_URL}
+            </p>
           </div>
+        ) : (
+          /* ---- Normal sign-in flow ---- */
+          <>
+            {/* Google sign-in button */}
+            <button
+              type="button"
+              onClick={() => handleSignIn()}
+              disabled={signingIn}
+              className="neu-raised group flex w-full items-center justify-center gap-3 rounded-2xl px-6 py-4 text-sm font-semibold text-text-primary transition-all duration-300 hover:scale-[1.02] active:scale-[0.97] active:shadow-neu-inset disabled:opacity-50 cursor-pointer"
+            >
+              {signingIn ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-text-secondary/30 border-t-accent" />
+              ) : (
+                <GoogleIcon />
+              )}
+              {signingIn ? "Signing in\u2026" : "Continue with Google"}
+            </button>
+
+            {/* Error message */}
+            {error && (
+              <p className="mt-3 text-center text-xs text-red-500 animate-page-enter">
+                {error}
+              </p>
+            )}
+
+            {/* Quick login history */}
+            {quickLoginAccounts.length > 0 && (
+              <div className="mt-8 animate-page-enter" style={{ animationDelay: "150ms" }}>
+                <p className="mb-3 text-center text-xs font-medium uppercase tracking-wider text-text-secondary">
+                  Recent accounts
+                </p>
+                <div className="flex flex-col gap-2.5">
+                   {quickLoginAccounts.map((account) => (
+                    <QuickLoginRow
+                      key={account.uid}
+                      account={account}
+                      onClick={() => handleSignIn(account.email || undefined)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Footer */}
