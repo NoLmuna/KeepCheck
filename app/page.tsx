@@ -15,6 +15,7 @@ import {
   deleteImagesForSpotFromFirestore,
   subscribeToSpots,
   subscribeToImages,
+  type FirestoreSpotChange,
 } from "@/lib/firestore";
 import {
   syncSpotToFirestore,
@@ -451,52 +452,47 @@ function HomePage() {
   }, [imageFile]);
 
   /* -- Firestore real-time sync -- */
-  const syncSpots = useCallback(async (firestoreSpots: (FoodSpotLog & { firebaseId: string })[]) => {
+  const syncSpots = useCallback(async (changes: FirestoreSpotChange[]) => {
     if (!user) return;
 
-    // Sync each Firestore spot into local Dexie — add if missing, update if changed
-    for (const fSpot of firestoreSpots) {
-      const existing = await db.spots.where("firebaseId").equals(fSpot.firebaseId).first();
-      if (!existing) {
-        await db.spots.add({
-          name: fSpot.name,
-          category: fSpot.category ?? "Restaurant",
-          rating: fSpot.rating,
-          comment: fSpot.comment,
-          createdAt: fSpot.createdAt,
-          thumbnail: fSpot.thumbnail,
-          firebaseId: fSpot.firebaseId,
-          userId: user.uid,
-          pendingSync: false,
-        });
-      } else if (existing.id !== undefined) {
-        // Build an update payload with only the fields that actually changed
-        // to avoid unnecessary Dexie writes and re-renders
-        const updates: Partial<FoodSpotLog> = {};
-        if (existing.name !== fSpot.name) updates.name = fSpot.name;
-        if (existing.category !== (fSpot.category ?? "Restaurant")) updates.category = fSpot.category ?? "Restaurant";
-        if (existing.rating !== fSpot.rating) updates.rating = fSpot.rating;
-        if (existing.comment !== fSpot.comment) updates.comment = fSpot.comment;
-        if (existing.createdAt !== fSpot.createdAt) updates.createdAt = fSpot.createdAt;
-        if (existing.thumbnail !== fSpot.thumbnail) updates.thumbnail = fSpot.thumbnail;
-        if (existing.pendingSync) updates.pendingSync = false;
+    for (const change of changes) {
+      const fSpot = change.spot;
 
-        if (Object.keys(updates).length > 0) {
-          await db.spots.update(existing.id, updates);
+      if (change.type === "added" || change.type === "modified") {
+        const existing = await db.spots.where("firebaseId").equals(fSpot.firebaseId).first();
+        if (!existing) {
+          await db.spots.add({
+            name: fSpot.name,
+            category: fSpot.category ?? "Restaurant",
+            rating: fSpot.rating,
+            comment: fSpot.comment,
+            createdAt: fSpot.createdAt,
+            thumbnail: fSpot.thumbnail,
+            firebaseId: fSpot.firebaseId,
+            userId: user.uid,
+            pendingSync: false,
+          });
+        } else if (existing.id !== undefined) {
+          // Build an update payload with only the fields that actually changed
+          // to avoid unnecessary Dexie writes and re-renders
+          const updates: Partial<FoodSpotLog> = {};
+          if (existing.name !== fSpot.name) updates.name = fSpot.name;
+          if (existing.category !== (fSpot.category ?? "Restaurant")) updates.category = fSpot.category ?? "Restaurant";
+          if (existing.rating !== fSpot.rating) updates.rating = fSpot.rating;
+          if (existing.comment !== fSpot.comment) updates.comment = fSpot.comment;
+          if (existing.createdAt !== fSpot.createdAt) updates.createdAt = fSpot.createdAt;
+          if (existing.thumbnail !== fSpot.thumbnail) updates.thumbnail = fSpot.thumbnail;
+          if (existing.pendingSync) updates.pendingSync = false;
+
+          if (Object.keys(updates).length > 0) {
+            await db.spots.update(existing.id, updates);
+          }
         }
-      }
-    }
-
-    // Remove local spots whose firebaseId no longer exists in Firestore.
-    // IMPORTANT: Skip spots with pendingSync — they haven't been uploaded yet
-    // and will appear in Firestore once the device is back online.
-    const firestoreIds = new Set(firestoreSpots.map((s) => s.firebaseId));
-    const localSpots = await db.spots.where("userId").equals(user.uid).toArray();
-    for (const local of localSpots) {
-      if (local.firebaseId && !firestoreIds.has(local.firebaseId) && !local.pendingSync) {
-        if (local.id !== undefined) {
-          await db.images.where("spotId").equals(local.id).delete();
-          await db.spots.delete(local.id);
+      } else if (change.type === "removed") {
+        const existing = await db.spots.where("firebaseId").equals(fSpot.firebaseId).first();
+        if (existing && existing.id !== undefined) {
+          await db.images.where("spotId").equals(existing.id).delete();
+          await db.spots.delete(existing.id);
         }
       }
     }
@@ -641,7 +637,15 @@ function HomePage() {
 
   // 1. Page entrance animation timeline (Run once on mount when spots resolve)
   useEffect(() => {
-    if (!user || spots === undefined || hasAnimatedRef.current) return;
+    if (!user || spots === undefined) return;
+
+    // Check if the header is already visible. If it is and we've already
+    // animated, skip running it again to prevent glitchy re-runs.
+    // If it's invisible (e.g. on mount or after Fast Refresh), run the animation.
+    const headerEl = document.querySelector(".gsap-header");
+    const isAlreadyVisible = headerEl && window.getComputedStyle(headerEl).opacity === "1";
+    if (isAlreadyVisible && hasAnimatedRef.current) return;
+
     hasAnimatedRef.current = true;
 
     const ctx = gsap.context(() => {

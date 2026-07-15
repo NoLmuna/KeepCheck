@@ -67,18 +67,26 @@ export async function fetchSpotsFromFirestore(
   }));
 }
 
+export interface FirestoreSpotChange {
+  type: "added" | "modified" | "removed";
+  spot: FoodSpotLog & { firebaseId: string };
+}
+
 /** Subscribe to real-time spot updates. Returns an unsubscribe function. */
 export function subscribeToSpots(
   uid: string,
-  callback: (spots: (FoodSpotLog & { firebaseId: string })[]) => void,
+  callback: (changes: FirestoreSpotChange[]) => void,
 ): Unsubscribe {
   const q = query(spotsCol(uid), orderBy("createdAt", "desc"));
   return onSnapshot(q, (snapshot) => {
-    const spots = snapshot.docs.map((d) => ({
-      ...(d.data() as Omit<FoodSpotLog, "id" | "firebaseId">),
-      firebaseId: d.id,
+    const changes = snapshot.docChanges().map((change) => ({
+      type: change.type,
+      spot: {
+        ...(change.doc.data() as Omit<FoodSpotLog, "id" | "firebaseId">),
+        firebaseId: change.doc.id,
+      },
     }));
-    callback(spots);
+    callback(changes);
   });
 }
 
