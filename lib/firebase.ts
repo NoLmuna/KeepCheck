@@ -13,6 +13,10 @@ import {
   persistentMultipleTabManager,
   type Firestore,
 } from "firebase/firestore";
+import {
+  getStorage as _getStorage,
+  type FirebaseStorage,
+} from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -34,6 +38,7 @@ function getApp_(): FirebaseApp {
 
 let _auth: Auth | null = null;
 let _firestore: Firestore | null = null;
+let _storage: FirebaseStorage | null = null;
 
 /**
  * Returns the Firebase Auth singleton.
@@ -79,4 +84,13 @@ export function getFirebaseFirestore(): Firestore {
   }
 
   return _firestore;
+}
+
+/**
+ * Returns the Firebase Storage singleton.
+ */
+export function getFirebaseStorage(): FirebaseStorage {
+  if (_storage) return _storage;
+  _storage = _getStorage(getApp_());
+  return _storage;
 }

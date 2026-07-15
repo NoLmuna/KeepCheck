@@ -7,11 +7,10 @@ import {
   query,
   orderBy,
   onSnapshot,
-  addDoc,
   type Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseFirestore } from "./firebase";
-import type { FoodSpotLog, SpotImage } from "@/app/db";
+import type { FoodSpotLog } from "@/app/db";
 
 /* ------------------------------------------------------------------ */
 /*  Path helpers                                                       */
@@ -19,10 +18,6 @@ import type { FoodSpotLog, SpotImage } from "@/app/db";
 
 function spotsCol(uid: string) {
   return collection(getFirebaseFirestore(), "users", uid, "spots");
-}
-
-function imagesCol(uid: string) {
-  return collection(getFirebaseFirestore(), "users", uid, "images");
 }
 
 /* ------------------------------------------------------------------ */
@@ -93,63 +88,5 @@ export function subscribeToSpots(
       },
     }));
     callback(changes);
-  });
-}
-
-/* ------------------------------------------------------------------ */
-/*  Images                                                             */
-/* ------------------------------------------------------------------ */
-
-/**
- * Add an image to Firestore.
- *
- * NOTE: We store the image as a base64 string (NOT a Blob) because
- * Firestore doesn't natively support Blob storage. The images are
- * already compressed JPEGs < 1 MB from the image utility pipeline.
- */
-export async function addImageToFirestore(
-  uid: string,
-  image: {
-    spotFirebaseId: string;
-    base64: string;
-    createdAt: number;
-  },
-): Promise<string> {
-  const docRef = await addDoc(imagesCol(uid), {
-    spotFirebaseId: image.spotFirebaseId,
-    base64: image.base64,
-    createdAt: image.createdAt,
-    userId: uid,
-  });
-  return docRef.id;
-}
-
-/** Delete all images for a spot from Firestore. */
-export async function deleteImagesForSpotFromFirestore(
-  uid: string,
-  spotFirebaseId: string,
-): Promise<void> {
-  const q = query(imagesCol(uid));
-  const snapshot = await getDocs(q);
-  const deleteOps = snapshot.docs
-    .filter((d) => d.data().spotFirebaseId === spotFirebaseId)
-    .map((d) => deleteDoc(d.ref));
-  await Promise.all(deleteOps);
-}
-
-/** Subscribe to real-time image updates. Returns an unsubscribe function. */
-export function subscribeToImages(
-  uid: string,
-  callback: (images: { firebaseId: string; spotFirebaseId: string; base64: string; createdAt: number }[]) => void,
-): Unsubscribe {
-  const q = query(imagesCol(uid), orderBy("createdAt", "desc"));
-  return onSnapshot(q, (snapshot) => {
-    const images = snapshot.docs.map((d) => ({
-      firebaseId: d.id,
-      spotFirebaseId: d.data().spotFirebaseId as string,
-      base64: d.data().base64 as string,
-      createdAt: d.data().createdAt as number,
-    }));
-    callback(images);
   });
 }

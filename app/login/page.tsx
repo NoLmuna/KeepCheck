@@ -83,11 +83,11 @@ export default function LoginPage() {
     }
   }, [user, loading, router]);
 
-  async function handleSignIn() {
+  async function handleSignIn(email?: string) {
     setSigningIn(true);
     setError(null);
     try {
-      await signInWithGoogle();
+      await signInWithGoogle(email);
     } catch {
       setError("Sign-in failed. Please try again.");
     } finally {
@@ -151,7 +151,7 @@ export default function LoginPage() {
         {/* Google sign-in button */}
         <button
           type="button"
-          onClick={handleSignIn}
+          onClick={() => handleSignIn()}
           disabled={signingIn}
           className="neu-raised group flex w-full items-center justify-center gap-3 rounded-2xl px-6 py-4 text-sm font-semibold text-text-primary transition-all duration-300 hover:scale-[1.02] active:scale-[0.97] active:shadow-neu-inset disabled:opacity-50 cursor-pointer"
         >
@@ -177,11 +177,11 @@ export default function LoginPage() {
               Recent accounts
             </p>
             <div className="flex flex-col gap-2.5">
-              {quickLoginAccounts.map((account) => (
+               {quickLoginAccounts.map((account) => (
                 <QuickLoginRow
                   key={account.uid}
                   account={account}
-                  onClick={handleSignIn}
+                  onClick={() => handleSignIn(account.email || undefined)}
                 />
               ))}
             </div>

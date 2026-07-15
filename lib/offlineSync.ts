@@ -20,23 +20,22 @@
 import { db, type FoodSpotLog } from "@/app/db";
 import {
   writeSpotToFirestore,
-  addImageToFirestore,
   deleteSpotFromFirestore,
-  deleteImagesForSpotFromFirestore,
 } from "./firestore";
+import { uploadSpotImage, deleteSpotImage } from "./storage";
 
 /* ------------------------------------------------------------------ */
 /*  Pending-delete queue (localStorage-backed)                         */
 /* ------------------------------------------------------------------ */
 
-interface PendingDelete {
+export interface PendingDelete {
   uid: string;
   firebaseId: string;
 }
 
 const PENDING_DELETES_KEY = "keepcheck-pending-deletes";
 
-function getPendingDeletes(): PendingDelete[] {
+export function getPendingDeletes(): PendingDelete[] {
   try {
     const raw = localStorage.getItem(PENDING_DELETES_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -85,6 +84,25 @@ export async function syncSpotToFirestore(
   }
 
   try {
+    let downloadURL = spot.downloadURL;
+
+    // If there's a local image for this spot, sync it too
+    if (spot.id !== undefined) {
+      const image = await db.images.where("spotId").equals(spot.id).first();
+      if (image && !image.firebaseId) {
+        try {
+          downloadURL = await uploadSpotImage(uid, spot.firebaseId, image.blob);
+          // Mark image as synced
+          await db.images.update(image.id!, { firebaseId: "uploaded" });
+          // Update local spot with downloadURL
+          await db.spots.update(spot.id, { downloadURL });
+        } catch (imgErr) {
+          console.warn("[OfflineSync] Image sync failed, will retry:", imgErr);
+          // Don't fail the whole spot sync for an image failure
+        }
+      }
+    }
+
     // Write the spot document
     await writeSpotToFirestore(uid, spot.firebaseId, {
       name: spot.name,
@@ -93,32 +111,8 @@ export async function syncSpotToFirestore(
       comment: spot.comment,
       createdAt: spot.createdAt,
       thumbnail: spot.thumbnail,
+      downloadURL,
     });
-
-    // If there's a local image for this spot, sync it too
-    if (spot.id !== undefined) {
-      const image = await db.images.where("spotId").equals(spot.id).first();
-      if (image && !image.firebaseId) {
-        try {
-          const reader = new FileReader();
-          const base64 = await new Promise<string>((resolve, reject) => {
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(image.blob);
-          });
-          const imgFirebaseId = await addImageToFirestore(uid, {
-            spotFirebaseId: spot.firebaseId,
-            base64,
-            createdAt: image.createdAt,
-          });
-          // Mark image as synced
-          await db.images.update(image.id!, { firebaseId: imgFirebaseId });
-        } catch (imgErr) {
-          console.warn("[OfflineSync] Image sync failed, will retry:", imgErr);
-          // Don't fail the whole spot sync for an image failure
-        }
-      }
-    }
 
     // Mark spot as synced
     if (spot.id !== undefined) {
@@ -191,7 +185,7 @@ export async function sweepPendingSync(uid: string): Promise<number> {
         continue;
       }
       try {
-        await deleteImagesForSpotFromFirestore(del.uid, del.firebaseId);
+        await deleteSpotImage(del.uid, del.firebaseId);
         await deleteSpotFromFirestore(del.uid, del.firebaseId);
         console.log(`[OfflineSync] ✓ Deleted spot ${del.firebaseId} from Firestore`);
       } catch {

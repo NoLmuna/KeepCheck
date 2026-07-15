@@ -19,6 +19,8 @@ export interface FoodSpotLog {
   userId?: string;
   /** True when the entry has been saved locally but not yet synced to Firestore. */
   pendingSync?: boolean;
+  /** Firebase Storage download URL for the full-resolution image. */
+  downloadURL?: string;
 }
 
 /** Full-resolution image associated with a spot (one image per spot). */

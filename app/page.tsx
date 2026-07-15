@@ -11,16 +11,15 @@ import {
   generateSpotId,
   writeSpotToFirestore,
   deleteSpotFromFirestore,
-  addImageToFirestore,
-  deleteImagesForSpotFromFirestore,
   subscribeToSpots,
-  subscribeToImages,
   type FirestoreSpotChange,
 } from "@/lib/firestore";
+import { uploadSpotImage, deleteSpotImage } from "@/lib/storage";
 import {
   syncSpotToFirestore,
   queuePendingDelete,
   startOnlineListener,
+  getPendingDeletes,
 } from "@/lib/offlineSync";
 import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X, WifiOff, Cloud, CloudOff } from "lucide-react";
 import { gsap } from "gsap";
@@ -328,7 +327,7 @@ function UserProfile({
     <div ref={containerRef} className="relative z-50">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen((o: boolean) => !o)}
         className="neu-button flex h-11 w-11 items-center justify-center rounded-full overflow-hidden cursor-pointer"
       >
         {photoURL ? (
@@ -542,24 +541,42 @@ function HomePage() {
   const syncSpots = useCallback(async (changes: FirestoreSpotChange[]) => {
     if (!user) return;
 
+    const pendingDeletes = getPendingDeletes();
+
     for (const change of changes) {
       const fSpot = change.spot;
 
+      // 3. DELETE-RESURRECTION RACE CONDITION PATCH
+      // If a user deletes a spot while offline, and the app comes online, the Firestore
+      // snapshot listener might re-download the document before the pending delete
+      // queue processes it. Ignore incoming added/modified snapshots for flagged IDs.
+      const isPendingDelete = pendingDeletes.some(
+        (d) => d.uid === user.uid && d.firebaseId === fSpot.firebaseId
+      );
+      if (isPendingDelete) {
+        console.log(`[KeepCheck] Ignoring incoming snapshot for "${fSpot.name}" (${fSpot.firebaseId}) — pending local delete`);
+        continue;
+      }
+
       if (change.type === "added" || change.type === "modified") {
         const existing = await db.spots.where("firebaseId").equals(fSpot.firebaseId).first();
+        let localSpotId: number | undefined;
+
         if (!existing) {
-          await db.spots.add({
+          localSpotId = await db.spots.add({
             name: fSpot.name,
             category: fSpot.category ?? "Restaurant",
             rating: fSpot.rating,
             comment: fSpot.comment,
             createdAt: fSpot.createdAt,
             thumbnail: fSpot.thumbnail,
+            downloadURL: fSpot.downloadURL,
             firebaseId: fSpot.firebaseId,
             userId: user.uid,
             pendingSync: false,
           });
         } else if (existing.id !== undefined) {
+          localSpotId = existing.id;
           // Build an update payload with only the fields that actually changed
           const updates: Partial<FoodSpotLog> = {};
           if (existing.name !== fSpot.name) updates.name = fSpot.name;
@@ -568,10 +585,31 @@ function HomePage() {
           if (existing.comment !== fSpot.comment) updates.comment = fSpot.comment;
           if (existing.createdAt !== fSpot.createdAt) updates.createdAt = fSpot.createdAt;
           if (existing.thumbnail !== fSpot.thumbnail) updates.thumbnail = fSpot.thumbnail;
+          if (existing.downloadURL !== fSpot.downloadURL) updates.downloadURL = fSpot.downloadURL;
           if (existing.pendingSync) updates.pendingSync = false;
 
           if (Object.keys(updates).length > 0) {
             await db.spots.update(existing.id, updates);
+          }
+        }
+
+        // Fetch image from downloadURL if we have one and don't already have it locally
+        if (localSpotId !== undefined && fSpot.downloadURL) {
+          const existingImages = await db.images.where("spotId").equals(localSpotId).toArray();
+          if (existingImages.length === 0) {
+            try {
+              const response = await fetch(fSpot.downloadURL);
+              const blob = await response.blob();
+              await db.images.add({
+                spotId: localSpotId,
+                blob,
+                createdAt: fSpot.createdAt,
+                firebaseId: "uploaded",
+              });
+              console.log(`[KeepCheck] Successfully downloaded and cached image for spot: ${fSpot.name}`);
+            } catch (err) {
+              console.warn("[KeepCheck] Failed to fetch/cache image from downloadURL:", err);
+            }
           }
         }
       } else if (change.type === "removed") {
@@ -584,43 +622,14 @@ function HomePage() {
     }
   }, [user]);
 
-  /* -- Firestore real-time image sync -- */
-  const syncImages = useCallback(async (firestoreImages: { firebaseId: string; spotFirebaseId: string; base64: string; createdAt: number }[]) => {
-    if (!user) return;
-
-    for (const fImg of firestoreImages) {
-      const spot = await db.spots.where("firebaseId").equals(fImg.spotFirebaseId).first();
-      if (!spot || spot.id === undefined) continue;
-
-      const existingImages = await db.images.where("spotId").equals(spot.id).toArray();
-      const alreadyHas = existingImages.some((img) => img.firebaseId === fImg.firebaseId);
-      if (alreadyHas) continue;
-
-      try {
-        const response = await fetch(fImg.base64);
-        const blob = await response.blob();
-        await db.images.add({
-          spotId: spot.id,
-          blob,
-          createdAt: fImg.createdAt,
-          firebaseId: fImg.firebaseId,
-        });
-      } catch (err) {
-        console.warn("[KeepCheck] Failed to sync image from Firestore:", err);
-      }
-    }
-  }, [user]);
-
-  // Only subscribe to Firestore when we have a real authenticated user
+  // Only subscribe to Firestore spots when we have a real authenticated user
   useEffect(() => {
     if (!user) return;
     const unsubSpots = subscribeToSpots(user.uid, syncSpots);
-    const unsubImages = subscribeToImages(user.uid, syncImages);
     return () => {
       unsubSpots();
-      unsubImages();
     };
-  }, [user, syncSpots, syncImages]);
+  }, [user, syncSpots]);
 
   /* -- Offline sync listener -- */
   useEffect(() => {
@@ -961,30 +970,32 @@ function HomePage() {
 
       // ---- 2. Attempt Firestore write directly (works offline via persistentLocalCache) ----
       try {
-        await writeSpotToFirestore(user.uid, firebaseId, spotData);
+        let downloadURL: string | undefined;
+
+        // Upload image to Firebase Storage first (best-effort, but before writing spot document)
+        if (compressedBlob) {
+          try {
+            downloadURL = await uploadSpotImage(user.uid, firebaseId, compressedBlob);
+            // Mark image as synced locally since it's uploaded
+            const localImg = await db.images.where("spotId").equals(spotId).first();
+            if (localImg && localImg.id !== undefined) {
+              await db.images.update(localImg.id, { firebaseId: "uploaded" });
+            }
+            // Update local spot with downloadURL
+            await db.spots.update(spotId, { downloadURL });
+          } catch (imgUploadErr) {
+            console.warn("[KeepCheck] Image upload to Storage failed (will retry on sync):", imgUploadErr);
+          }
+        }
+
+        await writeSpotToFirestore(user.uid, firebaseId, {
+          ...spotData,
+          downloadURL,
+        });
 
         // Firestore write succeeded (or queued by local cache) — clear pendingSync
         await db.spots.update(spotId, { pendingSync: false });
         console.log(`[KeepCheck] Spot synced to Firestore (${firebaseId})`);
-
-        // Upload image to Firestore (non-blocking, best-effort)
-        if (compressedBlob) {
-          try {
-            const reader = new FileReader();
-            const base64 = await new Promise<string>((resolve, reject) => {
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(compressedBlob!);
-            });
-            await addImageToFirestore(user.uid, {
-              spotFirebaseId: firebaseId,
-              base64,
-              createdAt: Date.now(),
-            });
-          } catch (imgUploadErr) {
-            console.warn("[KeepCheck] Image upload to Firestore failed (will retry on sync):", imgUploadErr);
-          }
-        }
       } catch (firestoreErr) {
         // Firestore write failed — pendingSync stays true, will retry when online
         console.warn("[KeepCheck] Firestore write failed — queued for sync when online:", firestoreErr);
@@ -1025,7 +1036,7 @@ function HomePage() {
 
   async function deleteEntry(id: number) {
     try {
-      setDeletingIds((prev) => new Set(prev).add(id));
+      setDeletingIds((prev: Set<number>) => new Set<number>(prev).add(id));
       const spot = await db.spots.get(id);
 
       await new Promise((resolve) => setTimeout(resolve, 400));
@@ -1039,7 +1050,7 @@ function HomePage() {
       // Attempt Firestore delete (non-blocking)
       if (spot?.firebaseId && user) {
         try {
-          await deleteImagesForSpotFromFirestore(user.uid, spot.firebaseId);
+          await deleteSpotImage(user.uid, spot.firebaseId);
           await deleteSpotFromFirestore(user.uid, spot.firebaseId);
         } catch (fireErr) {
           console.warn("[KeepCheck] Firestore delete failed — queued for retry when online:", fireErr);
@@ -1048,15 +1059,15 @@ function HomePage() {
         }
       }
 
-      setDeletingIds((prev) => {
-        const next = new Set(prev);
+      setDeletingIds((prev: Set<number>) => {
+        const next = new Set<number>(prev);
         next.delete(id);
         return next;
       });
     } catch (error) {
       console.error("Failed to delete entry:", error);
-      setDeletingIds((prev) => {
-        const next = new Set(prev);
+      setDeletingIds((prev: Set<number>) => {
+        const next = new Set<number>(prev);
         next.delete(id);
         return next;
       });
@@ -1129,14 +1140,14 @@ function HomePage() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            <ThemeToggle dark={dark} onToggle={() => setDark((d) => !d)} />
+            <ThemeToggle dark={dark} onToggle={() => setDark((d: boolean) => !d)} />
             
             {/* Desktop Add Spot button */}
             {effectiveUid && (
               <button
                 type="button"
                 onClick={openFormModal}
-                className="hidden sm:inline-flex items-center gap-1.5 neu-button rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold text-accent cursor-pointer hover:text-accent-glow"
+                className="hidden md:inline-flex items-center gap-1.5 neu-button rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold text-accent cursor-pointer hover:text-accent-glow"
               >
                 <Plus className="h-4 w-4" />
                 Add Spot
@@ -1214,7 +1225,7 @@ function HomePage() {
                 ref={carouselRef}
                 className="carousel-container gap-6 py-6 px-4 scrollbar-none"
               >
-                {filteredSpots && filteredSpots.map((spot, index) => (
+                {filteredSpots && (filteredSpots as FoodSpotLog[]).map((spot: FoodSpotLog, index: number) => (
                   <div
                     key={spot.id}
                     className={`carousel-card group/item relative shrink-0 transition-transform duration-300 ${deletingIds.has(spot.id!) ? "animate-melt" : ""}`}
@@ -1337,7 +1348,7 @@ function HomePage() {
             ) : (
               /* List/Table View Mode */
               <div className="neu-raised p-4 space-y-3 pt-2">
-                {filteredSpots && filteredSpots.map((spot) => (
+                {filteredSpots && (filteredSpots as FoodSpotLog[]).map((spot: FoodSpotLog) => (
                   <FeedListItem
                     key={spot.id}
                     spot={spot}
@@ -1581,7 +1592,7 @@ function HomePage() {
           onMouseLeave={() => handleFABHover(false)}
           onMouseDown={() => handleFABPress(true)}
           onMouseUp={() => handleFABPress(false)}
-          className="gsap-fab fixed bottom-6 right-6 z-40 neu-button h-14 w-14 rounded-full bg-accent text-white flex items-center justify-center shadow-lg cursor-pointer transition-all duration-300 group"
+          className="gsap-fab fixed bottom-6 right-6 z-40 neu-button h-14 w-14 rounded-full bg-accent text-white flex items-center justify-center shadow-lg cursor-pointer transition-all duration-300 group md:hidden"
           aria-label="Add new spot"
         >
           <Plus className="h-6 w-6 text-white" />

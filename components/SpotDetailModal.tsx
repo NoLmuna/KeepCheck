@@ -89,6 +89,7 @@ export default function SpotDetailModal({
             comment: spot.comment,
             createdAt: spot.createdAt,
             thumbnail: newThumb,
+            downloadURL: spot.downloadURL,
           });
           await db.spots.update(spotId, { pendingSync: false });
         } catch (fireErr) {
