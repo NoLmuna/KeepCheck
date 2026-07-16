@@ -17,6 +17,7 @@ const withSerwist = withSerwistInit({
 
 const nextConfig: NextConfig = {
   /* config options here */
+  serverExternalPackages: ["firebase-admin"],
 };
 
 export default withSerwist(nextConfig);
