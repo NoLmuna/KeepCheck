@@ -1,8 +1,26 @@
 import { defaultCache } from "@serwist/next/worker";
-import { type PrecacheEntry, Serwist, cacheNames, StaleWhileRevalidate, ExpirationPlugin } from "serwist";
+import { type PrecacheEntry, Serwist, cacheNames, StaleWhileRevalidate, CacheFirst, ExpirationPlugin } from "serwist";
 
 declare const self: ServiceWorkerGlobalScope & {
   __SW_MANIFEST: (PrecacheEntry | string)[] | undefined;
+};
+
+// Caching rule for OpenStreetMap tile requests.
+// OSM tiles are fetched from URLs matching "tile.openstreetmap.org".
+// We use a CacheFirst strategy so tiles are read from cache offline.
+// Note: map tiles become available offline only for areas the user has already viewed while online (opportunistic caching) — not a pre-downloaded full region.
+const osmTileCacheRule = {
+  matcher: /tile\.openstreetmap\.org/i,
+  handler: new CacheFirst({
+    cacheName: "openstreetmap-tiles",
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 1000,
+        maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        maxAgeFrom: "last-used",
+      }),
+    ],
+  }),
 };
 
 const serwist = new Serwist({
@@ -14,6 +32,7 @@ const serwist = new Serwist({
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: [
+    osmTileCacheRule,
     {
       matcher: /^https:\/\/lh[0-9]*\.googleusercontent\.com\/.*/i,
       handler: new StaleWhileRevalidate({

@@ -89,7 +89,8 @@ export default function SpotDetailModal({
             comment: spot.comment,
             createdAt: spot.createdAt,
             thumbnail: newThumb,
-            downloadURL: spot.downloadURL,
+            latitude: spot.latitude,
+            longitude: spot.longitude,
           });
           await db.spots.update(spotId, { pendingSync: false });
         } catch (fireErr) {

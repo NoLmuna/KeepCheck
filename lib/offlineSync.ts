@@ -21,8 +21,10 @@ import { db, type FoodSpotLog } from "@/app/db";
 import {
   writeSpotToFirestore,
   deleteSpotFromFirestore,
+  addImageToFirestore,
+  deleteImagesForSpotFromFirestore,
 } from "./firestore";
-import { uploadSpotImage, deleteSpotImage } from "./storage";
+import { compressBlobToSafeBase64 } from "@/utils/image";
 
 /* ------------------------------------------------------------------ */
 /*  Pending-delete queue (localStorage-backed)                         */
@@ -84,18 +86,24 @@ export async function syncSpotToFirestore(
   }
 
   try {
-    let downloadURL = spot.downloadURL;
-
     // If there's a local image for this spot, sync it too
     if (spot.id !== undefined) {
       const image = await db.images.where("spotId").equals(spot.id).first();
-      if (image && !image.firebaseId) {
+      // Sync if it exists and hasn't been uploaded to Firestore yet
+      if (image && (!image.firebaseId || image.firebaseId === "uploaded")) {
         try {
-          downloadURL = await uploadSpotImage(uid, spot.firebaseId, image.blob);
-          // Mark image as synced
-          await db.images.update(image.id!, { firebaseId: "uploaded" });
-          // Update local spot with downloadURL
-          await db.spots.update(spot.id, { downloadURL });
+          const base64 = await compressBlobToSafeBase64(image.blob);
+          if (base64) {
+            const imgFirebaseId = await addImageToFirestore(uid, {
+              spotFirebaseId: spot.firebaseId,
+              base64,
+              createdAt: image.createdAt,
+            });
+            // Mark image as synced locally
+            await db.images.update(image.id!, { firebaseId: imgFirebaseId });
+          } else {
+            console.warn("[OfflineSync] compressBlobToSafeBase64 returned null (too large). Skipping image Firestore upload, keeping only local photo.");
+          }
         } catch (imgErr) {
           console.warn("[OfflineSync] Image sync failed, will retry:", imgErr);
           // Don't fail the whole spot sync for an image failure
@@ -111,7 +119,8 @@ export async function syncSpotToFirestore(
       comment: spot.comment,
       createdAt: spot.createdAt,
       thumbnail: spot.thumbnail,
-      downloadURL,
+      latitude: spot.latitude,
+      longitude: spot.longitude,
     });
 
     // Mark spot as synced
@@ -185,7 +194,7 @@ export async function sweepPendingSync(uid: string): Promise<number> {
         continue;
       }
       try {
-        await deleteSpotImage(del.uid, del.firebaseId);
+        await deleteImagesForSpotFromFirestore(del.uid, del.firebaseId);
         await deleteSpotFromFirestore(del.uid, del.firebaseId);
         console.log(`[OfflineSync] ✓ Deleted spot ${del.firebaseId} from Firestore`);
       } catch {

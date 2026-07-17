@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type FoodSpotLog, type SpotCategory } from "./db";
-import { makeThumbnail, compressToBlob } from "@/utils/image";
+import Link from "next/link";
+import { makeThumbnail, compressToBlob, compressBlobToSafeBase64 } from "@/utils/image";
 import SpotDetailModal from "@/components/SpotDetailModal";
 import AuthGuard from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
@@ -13,15 +14,17 @@ import {
   deleteSpotFromFirestore,
   subscribeToSpots,
   type FirestoreSpotChange,
+  addImageToFirestore,
+  deleteImagesForSpotFromFirestore,
+  subscribeToImages,
 } from "@/lib/firestore";
-import { uploadSpotImage, deleteSpotImage } from "@/lib/storage";
 import {
   syncSpotToFirestore,
   queuePendingDelete,
   startOnlineListener,
   getPendingDeletes,
 } from "@/lib/offlineSync";
-import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X, WifiOff, Cloud, CloudOff } from "lucide-react";
+import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X, WifiOff, Cloud, CloudOff, MapPin } from "lucide-react";
 import { gsap } from "gsap";
 
 /* ------------------------------------------------------------------ */
@@ -570,10 +573,11 @@ function HomePage() {
             comment: fSpot.comment,
             createdAt: fSpot.createdAt,
             thumbnail: fSpot.thumbnail,
-            downloadURL: fSpot.downloadURL,
             firebaseId: fSpot.firebaseId,
             userId: user.uid,
             pendingSync: false,
+            latitude: fSpot.latitude,
+            longitude: fSpot.longitude,
           });
         } else if (existing.id !== undefined) {
           localSpotId = existing.id;
@@ -585,31 +589,12 @@ function HomePage() {
           if (existing.comment !== fSpot.comment) updates.comment = fSpot.comment;
           if (existing.createdAt !== fSpot.createdAt) updates.createdAt = fSpot.createdAt;
           if (existing.thumbnail !== fSpot.thumbnail) updates.thumbnail = fSpot.thumbnail;
-          if (existing.downloadURL !== fSpot.downloadURL) updates.downloadURL = fSpot.downloadURL;
+          if (existing.latitude !== fSpot.latitude) updates.latitude = fSpot.latitude;
+          if (existing.longitude !== fSpot.longitude) updates.longitude = fSpot.longitude;
           if (existing.pendingSync) updates.pendingSync = false;
 
           if (Object.keys(updates).length > 0) {
             await db.spots.update(existing.id, updates);
-          }
-        }
-
-        // Fetch image from downloadURL if we have one and don't already have it locally
-        if (localSpotId !== undefined && fSpot.downloadURL) {
-          const existingImages = await db.images.where("spotId").equals(localSpotId).toArray();
-          if (existingImages.length === 0) {
-            try {
-              const response = await fetch(fSpot.downloadURL);
-              const blob = await response.blob();
-              await db.images.add({
-                spotId: localSpotId,
-                blob,
-                createdAt: fSpot.createdAt,
-                firebaseId: "uploaded",
-              });
-              console.log(`[KeepCheck] Successfully downloaded and cached image for spot: ${fSpot.name}`);
-            } catch (err) {
-              console.warn("[KeepCheck] Failed to fetch/cache image from downloadURL:", err);
-            }
           }
         }
       } else if (change.type === "removed") {
@@ -622,14 +607,43 @@ function HomePage() {
     }
   }, [user]);
 
-  // Only subscribe to Firestore spots when we have a real authenticated user
+  const syncImages = useCallback(async (firestoreImages: { firebaseId: string; spotFirebaseId: string; base64: string; createdAt: number }[]) => {
+    if (!user) return;
+
+    for (const fImg of firestoreImages) {
+      const spot = await db.spots.where("firebaseId").equals(fImg.spotFirebaseId).first();
+      if (!spot || spot.id === undefined) continue;
+
+      const existingImages = await db.images.where("spotId").equals(spot.id).toArray();
+      const alreadyHas = existingImages.some((img) => img.firebaseId === fImg.firebaseId);
+      if (alreadyHas) continue;
+
+      try {
+        const response = await fetch(fImg.base64);
+        const blob = await response.blob();
+        await db.images.add({
+          spotId: spot.id,
+          blob,
+          createdAt: fImg.createdAt,
+          firebaseId: fImg.firebaseId,
+        });
+        console.log(`[KeepCheck] Successfully downloaded and cached image for spot from base64: ${spot.name}`);
+      } catch (err) {
+        console.warn("[KeepCheck] Failed to sync image from Firestore:", err);
+      }
+    }
+  }, [user]);
+
+  // Only subscribe to Firestore when we have a real authenticated user
   useEffect(() => {
     if (!user) return;
     const unsubSpots = subscribeToSpots(user.uid, syncSpots);
+    const unsubImages = subscribeToImages(user.uid, syncImages);
     return () => {
       unsubSpots();
+      unsubImages();
     };
-  }, [user, syncSpots]);
+  }, [user, syncSpots, syncImages]);
 
   /* -- Offline sync listener -- */
   useEffect(() => {
@@ -908,6 +922,72 @@ function HomePage() {
 
   /* ---------- handlers ---------- */
 
+interface LocationCoords {
+  latitude?: number;
+  longitude?: number;
+}
+
+function getCoords(): Promise<LocationCoords> {
+  return new Promise((resolve) => {
+    console.log("[KeepCheck Geolocation] Attempting to capture current position (timeout: 5000ms)...");
+
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      console.warn("[KeepCheck Geolocation] Geolocation is not supported by this browser or environment.");
+      resolve({});
+      return;
+    }
+
+    let resolved = false;
+    const timeoutId = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        console.warn("[KeepCheck Geolocation] Geolocation capture timed out after 5000ms.");
+        resolve({});
+      }
+    }, 5000);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (!resolved) {
+          clearTimeout(timeoutId);
+          resolved = true;
+          console.log(
+            `[KeepCheck Geolocation] Successfully captured position: lat=${position.coords.latitude}, lng=${position.coords.longitude} (accuracy: ${position.coords.accuracy}m)`
+          );
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        }
+      },
+      (error) => {
+        if (!resolved) {
+          clearTimeout(timeoutId);
+          resolved = true;
+          
+          let reason = "Unknown error";
+          if (error.code === error.PERMISSION_DENIED) {
+            reason = "Permission denied by user";
+          } else if (error.code === error.POSITION_UNAVAILABLE) {
+            reason = "Position unavailable";
+          } else if (error.code === error.TIMEOUT) {
+            reason = "Timeout";
+          }
+          console.warn(
+            `[KeepCheck Geolocation] Geolocation capture failed: ${reason} (code: ${error.code}, message: ${error.message})`
+          );
+          resolve({});
+        }
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 5000,
+        maximumAge: 0,
+      }
+    );
+  });
+}
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = name.trim();
@@ -935,6 +1015,13 @@ function HomePage() {
         }
       }
 
+      let coords: LocationCoords = {};
+      try {
+        coords = await getCoords();
+      } catch (e) {
+        console.error("[KeepCheck] Geolocation retrieval failed:", e);
+      }
+
       const spotData = {
         name: trimmed,
         category,
@@ -942,6 +1029,8 @@ function HomePage() {
         comment: comment.trim(),
         createdAt: Date.now(),
         thumbnail,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
       };
 
       const firebaseId = generateSpotId(user.uid);
@@ -970,28 +1059,30 @@ function HomePage() {
 
       // ---- 2. Attempt Firestore write directly (works offline via persistentLocalCache) ----
       try {
-        let downloadURL: string | undefined;
+        await writeSpotToFirestore(user.uid, firebaseId, spotData);
 
-        // Upload image to Firebase Storage first (best-effort, but before writing spot document)
+        // Upload image as base64 to Firestore (non-blocking, best-effort)
         if (compressedBlob) {
           try {
-            downloadURL = await uploadSpotImage(user.uid, firebaseId, compressedBlob);
-            // Mark image as synced locally since it's uploaded
-            const localImg = await db.images.where("spotId").equals(spotId).first();
-            if (localImg && localImg.id !== undefined) {
-              await db.images.update(localImg.id, { firebaseId: "uploaded" });
+            const base64 = await compressBlobToSafeBase64(compressedBlob);
+            if (base64) {
+              const imgFirebaseId = await addImageToFirestore(user.uid, {
+                spotFirebaseId: firebaseId,
+                base64,
+                createdAt: Date.now(),
+              });
+              // Mark image as synced locally
+              const localImg = await db.images.where("spotId").equals(spotId).first();
+              if (localImg && localImg.id !== undefined) {
+                await db.images.update(localImg.id, { firebaseId: imgFirebaseId });
+              }
+            } else {
+              console.warn("[KeepCheck] compressBlobToSafeBase64 returned null (too large). Skipping image Firestore upload, keeping only local photo.");
             }
-            // Update local spot with downloadURL
-            await db.spots.update(spotId, { downloadURL });
           } catch (imgUploadErr) {
-            console.warn("[KeepCheck] Image upload to Storage failed (will retry on sync):", imgUploadErr);
+            console.warn("[KeepCheck] Image sync to Firestore failed (will retry on sync sweep):", imgUploadErr);
           }
         }
-
-        await writeSpotToFirestore(user.uid, firebaseId, {
-          ...spotData,
-          downloadURL,
-        });
 
         // Firestore write succeeded (or queued by local cache) — clear pendingSync
         await db.spots.update(spotId, { pendingSync: false });
@@ -1050,7 +1141,7 @@ function HomePage() {
       // Attempt Firestore delete (non-blocking)
       if (spot?.firebaseId && user) {
         try {
-          await deleteSpotImage(user.uid, spot.firebaseId);
+          await deleteImagesForSpotFromFirestore(user.uid, spot.firebaseId);
           await deleteSpotFromFirestore(user.uid, spot.firebaseId);
         } catch (fireErr) {
           console.warn("[KeepCheck] Firestore delete failed — queued for retry when online:", fireErr);
@@ -1140,6 +1231,13 @@ function HomePage() {
           </div>
 
           <div className="flex items-center gap-2.5">
+            <Link
+              href="/map"
+              aria-label="View Map"
+              className="neu-button flex h-11 w-11 items-center justify-center rounded-full text-text-secondary cursor-pointer"
+            >
+              <MapPin className="h-5 w-5" />
+            </Link>
             <ThemeToggle dark={dark} onToggle={() => setDark((d: boolean) => !d)} />
             
             {/* Desktop Add Spot button */}

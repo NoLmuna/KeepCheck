@@ -111,15 +111,15 @@ export async function makeThumbnailFromBlob(
  * compressed) binary, retrieved only when the user opens a detail view.
  *
  * @param file     - Raw image file from `<input type="file">`.
- * @param maxWidth - Maximum width in px (default 1000). Height scales
+ * @param maxWidth - Maximum width in px (default 900). Height scales
  *                   proportionally.
- * @param quality  - JPEG quality 0–1 (default 0.8).
+ * @param quality  - JPEG quality 0–1 (default 0.7).
  * @returns Compressed JPEG `Blob`.
  */
 export async function compressToBlob(
   file: File,
-  maxWidth = 1000,
-  quality = 0.8,
+  maxWidth = 900,
+  quality = 0.7,
 ): Promise<Blob> {
   const canvas = await resizeToCanvas(file, maxWidth);
 
@@ -133,4 +133,51 @@ export async function compressToBlob(
       quality,
     );
   });
+}
+
+/**
+ * Convert a Blob into a base64 JPEG data-URL, making sure it stays
+ * safely under the target Firestore document size limit (e.g. ~700KB
+ * to leave headroom for other fields under the 1 MiB limit).
+ * If the resulting base64 string exceeds 700KB, it is progressively
+ * re-compressed with lower quality. If it still exceeds the limit
+ * after 3 retries, returns null.
+ *
+ * NOTE: Oversized document writes will fail Firestore's 1 MiB write limit
+ * outright with no clear error, so this check prevents sync failures.
+ */
+export async function compressBlobToSafeBase64(
+  blob: Blob,
+  maxDimension = 900,
+  initialQuality = 0.7,
+): Promise<string | null> {
+  let quality = initialQuality;
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await resizeToCanvas(blob, maxDimension);
+  } catch (err) {
+    console.error("[KeepCheck] Failed to decode blob for re-compression:", err);
+    return null;
+  }
+
+  let base64 = canvas.toDataURL("image/jpeg", quality);
+  const targetLimitBytes = 700 * 1024; // 700KB string length
+
+  let retries = 0;
+  while (base64.length > targetLimitBytes && retries < 3) {
+    retries++;
+    quality -= 0.15; // Step down quality (e.g. 0.7 -> 0.55 -> 0.40 -> 0.25)
+    if (quality < 0.1) {
+      break;
+    }
+    console.log(`[KeepCheck] Base64 image size (${Math.round(base64.length / 1024)}KB) exceeds 700KB limit. Re-compressing with quality ${quality.toFixed(2)} (retry ${retries}/3)...`);
+    base64 = canvas.toDataURL("image/jpeg", quality);
+  }
+
+  if (base64.length > targetLimitBytes) {
+    console.warn(`[KeepCheck] Base64 image still too large (${Math.round(base64.length / 1024)}KB) after retries. Skipping sync to Firestore to prevent oversized document failure.`);
+    return null;
+  }
+
+  return base64;
 }

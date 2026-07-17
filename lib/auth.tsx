@@ -258,7 +258,24 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     console.log("[KeepCheck AuthContext] signOut called");
 
-    // Clear cached session immediately
+    try {
+      // 1. Sign out of NextAuth without redirecting — explicitly set { redirect: false }
+      // so it does NOT perform a full page reload redirect, avoiding races against Firebase's signOut.
+      await nextAuthSignOut({ redirect: false });
+      console.log("[KeepCheck AuthContext] NextAuth signOut completed successfully");
+    } catch (error) {
+      console.error("[KeepCheck AuthContext] NextAuth signOut error:", error);
+    }
+
+    try {
+      // 2. Sign out of Firebase
+      await firebaseSignOut(getFirebaseAuth());
+      console.log("[KeepCheck AuthContext] Firebase signOut completed successfully");
+    } catch (error) {
+      console.error("[KeepCheck AuthContext] Firebase signOut error:", error);
+    }
+
+    // 3. Clear cached session and local states only AFTER both operations complete
     clearCachedSession();
     setCachedSession(null);
 
@@ -266,22 +283,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     tokenBridgeInFlight.current = false;
     setBridgeError(null);
 
-    // Sign out of NextAuth without redirecting — matches the existing
-    // "instant local clear, no navigation" behavior.
-    nextAuthSignOut({ redirect: false }).catch((error) => {
-      console.error("[KeepCheck AuthContext] NextAuth signOut error:", error);
-    });
-
-    // Sign out of Firebase
-    firebaseSignOut(getFirebaseAuth())
-      .then(() => {
-        console.log("[KeepCheck AuthContext] Firebase signOut completed successfully");
-      })
-      .catch((error) => {
-        console.error("[KeepCheck AuthContext] Firebase signOut error:", error);
-      });
-
-    // Immediately clear local state for instant redirect.
+    // Set user to null to trigger AuthGuard redirect
     console.log("[KeepCheck AuthContext] Setting user to null");
     setUser(null);
   }, []);

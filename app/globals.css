@@ -654,5 +654,87 @@ body {
   }
 }
 
+/* ================================================================== */
+/*  LEAFLET MAP INTEGRATION & POPUP THEME                             */
+/* ================================================================== */
+
+/* Container resets and theme bindings */
+.leaflet-container {
+  background: var(--bg) !important;
+  font-family: var(--font-work-sans), sans-serif !important;
+}
+
+/* Custom popups matching Neumorphism colors and styles */
+.leaflet-popup-content-wrapper {
+  background: var(--surface) !important;
+  color: var(--text-primary) !important;
+  border-radius: 1.25rem !important; /* 20px matching rounded-3xl/2xl cards */
+  border: 1px solid rgba(107, 93, 79, 0.15) !important; /* using fallback border */
+  box-shadow: var(--neu-shadow-raised) !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--surface) !important;
+  border: 1px solid rgba(107, 93, 79, 0.15) !important;
+}
+
+.leaflet-popup-content {
+  margin: 12px !important;
+  font-family: var(--font-work-sans), sans-serif !important;
+  font-size: 0.875rem !important;
+  line-height: 1.25 !important;
+}
+
+.leaflet-popup-close-button {
+  color: var(--text-secondary) !important;
+  padding: 8px !important;
+  top: 4px !important;
+  right: 4px !important;
+  font-size: 14px !important;
+}
+
+.leaflet-popup-close-button:hover {
+  background: transparent !important;
+  color: var(--accent) !important;
+}
+
+/* Zoom controls customization */
+.leaflet-bar {
+  border: none !important;
+  box-shadow: var(--neu-shadow-button) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  background: var(--surface) !important;
+}
+
+.leaflet-bar a {
+  background-color: var(--surface) !important;
+  color: var(--text-primary) !important;
+  border-bottom: 1px solid rgba(107, 93, 79, 0.15) !important;
+  transition: all 0.2s ease;
+}
+
+.leaflet-bar a:hover {
+  color: var(--accent) !important;
+  background-color: var(--bg) !important;
+}
+
+.leaflet-bar a:first-child {
+  border-top-left-radius: 12px !important;
+  border-top-right-radius: 12px !important;
+}
+
+.leaflet-bar a:last-child {
+  border-bottom-left-radius: 12px !important;
+  border-bottom-right-radius: 12px !important;
+  border-bottom: none !important;
+}
+
+/* Dark mode map tile filter */
+.dark .leaflet-tile-container {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
 
 

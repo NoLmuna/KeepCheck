@@ -19,8 +19,8 @@ export interface FoodSpotLog {
   userId?: string;
   /** True when the entry has been saved locally but not yet synced to Firestore. */
   pendingSync?: boolean;
-  /** Firebase Storage download URL for the full-resolution image. */
-  downloadURL?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 /** Full-resolution image associated with a spot (one image per spot). */
@@ -118,6 +118,26 @@ class KeepCheckDB extends Dexie {
           .modify((spot) => {
             if (spot.pendingSync === undefined) {
               spot.pendingSync = false;
+            }
+          })
+      );
+
+    // v6 — adds `latitude` and `longitude` fields to spots for the map view.
+    this.version(6)
+      .stores({
+        spots: "++id, name, category, rating, createdAt, firebaseId, userId, pendingSync",
+        images: "++id, spotId, createdAt, firebaseId",
+      })
+      .upgrade((tx) =>
+        tx
+          .table<FoodSpotLog>("spots")
+          .toCollection()
+          .modify((spot) => {
+            if (spot.latitude === undefined) {
+              spot.latitude = undefined;
+            }
+            if (spot.longitude === undefined) {
+              spot.longitude = undefined;
             }
           })
       );
