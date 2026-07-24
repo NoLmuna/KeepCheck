@@ -24,7 +24,8 @@ import {
   startOnlineListener,
   getPendingDeletes,
 } from "@/lib/offlineSync";
-import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X, WifiOff, Cloud, CloudOff, MapPin } from "lucide-react";
+import { Trash2, Camera, LogOut, ChevronLeft, ChevronRight, Clock, Plus, X, WifiOff, Cloud, CloudOff, MapPin, Locate, Navigation, LayoutList, LayoutGrid } from "lucide-react";
+import LocationPickerModal from "@/components/LocationPickerModal";
 import { gsap } from "gsap";
 
 /* ------------------------------------------------------------------ */
@@ -452,6 +453,9 @@ function HomePage() {
   const [rating, setRating] = useState(7);
   const [comment, setComment] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [manualCoords, setManualCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+  const [gettingGps, setGettingGps] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -488,6 +492,16 @@ function HomePage() {
 
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [catFilter, setCatFilter] = useState<CategoryFilter>("All");
+
+  /* -- Feed View Mode & Pagination state -- */
+  const [feedViewMode, setFeedViewMode] = useState<"list" | "grid">("list");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(5);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [catFilter, sortMode, search, pageSize]);
 
   useEffect(() => {
     // Read stored theme preference
@@ -700,6 +714,26 @@ function HomePage() {
 
     return result;
   }, [spots, search, sortMode, catFilter]);
+
+  /* -- Pagination derived state -- */
+  const totalFilteredCount = filteredSpots?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+
+  // Clamp current page if total pages decreases
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginatedSpots = useMemo(() => {
+    if (!filteredSpots) return undefined;
+    const start = (currentPage - 1) * pageSize;
+    return filteredSpots.slice(start, start + pageSize);
+  }, [filteredSpots, currentPage, pageSize]);
+
+  const startItem = totalFilteredCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(totalFilteredCount, currentPage * pageSize);
 
   /* -- Carousel scrolling listener -- */
   const handleCarouselScroll = useCallback(() => {
@@ -988,6 +1022,17 @@ function getCoords(): Promise<LocationCoords> {
   });
 }
 
+  const handleCaptureCurrentGPS = async () => {
+    setGettingGps(true);
+    const res = await getCoords();
+    setGettingGps(false);
+    if (res.latitude !== undefined && res.longitude !== undefined) {
+      setManualCoords({ latitude: res.latitude, longitude: res.longitude });
+    } else {
+      alert("Could not detect current position. You can pin the location manually on the map!");
+    }
+  };
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = name.trim();
@@ -1016,10 +1061,17 @@ function getCoords(): Promise<LocationCoords> {
       }
 
       let coords: LocationCoords = {};
-      try {
-        coords = await getCoords();
-      } catch (e) {
-        console.error("[KeepCheck] Geolocation retrieval failed:", e);
+      if (manualCoords?.latitude !== undefined && manualCoords?.longitude !== undefined) {
+        coords = { latitude: manualCoords.latitude, longitude: manualCoords.longitude };
+        console.log(
+          `[KeepCheck] Using manually pinned location: lat=${coords.latitude}, lng=${coords.longitude}`
+        );
+      } else {
+        try {
+          coords = await getCoords();
+        } catch (e) {
+          console.error("[KeepCheck] Geolocation retrieval failed:", e);
+        }
       }
 
       const spotData = {
@@ -1098,6 +1150,7 @@ function getCoords(): Promise<LocationCoords> {
       setRating(7);
       setComment("");
       setImageFile(null);
+      setManualCoords(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       
       setSuccess(true);
@@ -1380,10 +1433,73 @@ function getCoords(): Promise<LocationCoords> {
       <section className="w-full mb-16">
         
         {/* Activity feed controls header */}
-        <div className="flex items-center justify-between mb-4 gsap-feed-header gsap-reveal">
-          <h2 className="text-base sm:text-lg font-serif font-semibold text-text-primary">
-            Activity Feed
-          </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 gsap-feed-header gsap-reveal">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-base sm:text-lg font-serif font-semibold text-text-primary">
+              Activity Feed
+            </h2>
+            {totalFilteredCount > 0 && (
+              <span className="text-xs font-mono font-normal text-text-secondary/70 bg-bg/50 px-2.5 py-0.5 rounded-full shadow-neu-inset">
+                {totalFilteredCount} {totalFilteredCount === 1 ? "entry" : "entries"}
+              </span>
+            )}
+          </div>
+
+          {/* Controls: View mode switcher & Page size selector */}
+          {totalFilteredCount > 0 && (
+            <div className="flex items-center gap-3">
+              {/* Page Size selector */}
+              <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <span className="hidden sm:inline font-medium">Show:</span>
+                <div className="flex items-center gap-1 bg-bg/50 p-1 rounded-xl shadow-neu-inset">
+                  {[5, 10, 20].map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => setPageSize(size)}
+                      className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                        pageSize === size
+                          ? "bg-accent text-white shadow-neu-subtle"
+                          : "text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* View Mode Toggle */}
+              <div className="flex items-center gap-1 bg-bg/50 p-1 rounded-xl shadow-neu-inset">
+                <button
+                  type="button"
+                  onClick={() => setFeedViewMode("list")}
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                    feedViewMode === "list"
+                      ? "bg-accent text-white shadow-neu-subtle"
+                      : "text-text-secondary hover:text-text-primary"
+                  }`}
+                  title="Compact List View"
+                  aria-label="List view"
+                >
+                  <LayoutList className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFeedViewMode("grid")}
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                    feedViewMode === "grid"
+                      ? "bg-accent text-white shadow-neu-subtle"
+                      : "text-text-secondary hover:text-text-primary"
+                  }`}
+                  title="Grid Cards View"
+                  aria-label="Grid view"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {spots && spots.length > 0 ? (
@@ -1443,10 +1559,10 @@ function getCoords(): Promise<LocationCoords> {
               <div className="py-16 text-center neu-raised">
                 <p className="text-sm text-text-secondary">No logs match your current query or filters.</p>
               </div>
-            ) : (
+            ) : feedViewMode === "list" ? (
               /* List/Table View Mode */
               <div className="neu-raised p-4 space-y-3 pt-2">
-                {filteredSpots && (filteredSpots as FoodSpotLog[]).map((spot: FoodSpotLog) => (
+                {paginatedSpots && (paginatedSpots as FoodSpotLog[]).map((spot: FoodSpotLog) => (
                   <FeedListItem
                     key={spot.id}
                     spot={spot}
@@ -1454,6 +1570,84 @@ function getCoords(): Promise<LocationCoords> {
                     onDelete={() => spot.id !== undefined && deleteEntry(spot.id)}
                   />
                 ))}
+              </div>
+            ) : (
+              /* Grid Cards View Mode */
+              <div className="neu-raised p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {paginatedSpots && (paginatedSpots as FoodSpotLog[]).map((spot: FoodSpotLog, index: number) => (
+                  <div key={spot.id} className="relative group/item min-h-[220px]">
+                    <SpotCard
+                      spot={spot}
+                      index={index}
+                      onClick={() => spot.id !== undefined && setSelectedSpotId(spot.id)}
+                    />
+                    {spot.pendingSync && (
+                      <div className="pending-sync-badge" title="Waiting to sync to cloud">
+                        <CloudOff className="h-3 w-3" />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        spot.id !== undefined && deleteEntry(spot.id);
+                      }}
+                      className="absolute right-4 bottom-4 neu-button inline-flex h-8 w-8 items-center justify-center rounded-full text-text-secondary/70 opacity-0 group-hover/item:opacity-100 transition-opacity duration-300 hover:text-red-500 active:shadow-neu-inset cursor-pointer z-10 bg-bg"
+                      aria-label="Delete entry"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Pagination Controls Bar */}
+            {totalFilteredCount > 0 && (
+              <div className="neu-raised p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="text-text-secondary font-mono">
+                  Showing <span className="font-bold text-text-primary">{startItem}–{endItem}</span> of{" "}
+                  <span className="font-bold text-accent">{totalFilteredCount}</span> spots
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="neu-button px-3 py-1.5 rounded-xl text-xs font-semibold text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center gap-1"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    <span>Prev</span>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`h-8 w-8 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center ${
+                          currentPage === pageNum
+                            ? "bg-accent text-white shadow-neu-subtle"
+                            : "neu-button text-text-secondary hover:text-text-primary"
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="neu-button px-3 py-1.5 rounded-xl text-xs font-semibold text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1587,6 +1781,81 @@ function getCoords(): Promise<LocationCoords> {
                 />
               </div>
 
+              {/* Location Picker Section */}
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary flex justify-between items-center">
+                  <span>Location</span>
+                  <span className="text-[10px] text-text-secondary/50 lowercase font-normal">
+                    {manualCoords ? "custom pin set" : "auto-GPS fallback"}
+                  </span>
+                </p>
+
+                {manualCoords ? (
+                  <div className="neu-card p-3 rounded-2xl flex items-center justify-between gap-3 border border-accent/20 bg-accent/5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 rounded-xl bg-accent text-white shrink-0 shadow-neu-subtle">
+                        <MapPin className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-text-primary truncate">
+                          Pinned Location
+                        </p>
+                        <p className="text-[11px] font-mono text-text-secondary truncate">
+                          {manualCoords.latitude.toFixed(5)}, {manualCoords.longitude.toFixed(5)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setIsLocationPickerOpen(true)}
+                        className="neu-button px-2.5 py-1.5 rounded-xl text-xs font-semibold text-accent hover:text-accent-glow cursor-pointer"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualCoords(null)}
+                        className="neu-button px-2.5 py-1.5 rounded-xl text-xs font-semibold text-text-secondary hover:text-red-500 cursor-pointer"
+                        title="Remove pinned location"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsLocationPickerOpen(true)}
+                        className="neu-button p-2.5 rounded-2xl flex flex-col items-center justify-center text-center gap-1 cursor-pointer hover:border-accent/30 transition-all border border-text-secondary/10"
+                      >
+                        <MapPin className="h-4 w-4 text-accent" />
+                        <span className="text-xs font-semibold text-text-primary">Pin on Map</span>
+                        <span className="text-[10px] text-text-secondary/60">Choose exact point</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCaptureCurrentGPS}
+                        disabled={gettingGps}
+                        className="neu-button p-2.5 rounded-2xl flex flex-col items-center justify-center text-center gap-1 cursor-pointer hover:border-accent/30 transition-all border border-text-secondary/10 disabled:opacity-50"
+                      >
+                        <Locate className={`h-4 w-4 text-accent ${gettingGps ? "animate-spin" : ""}`} />
+                        <span className="text-xs font-semibold text-text-primary">
+                          {gettingGps ? "Locating…" : "Use Current GPS"}
+                        </span>
+                        <span className="text-[10px] text-text-secondary/60">Detect position</span>
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-text-secondary/50 text-center italic">
+                      If unselected, device GPS will be captured automatically when submitting.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Photo Area */}
               <div>
                 <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary">
@@ -1679,6 +1948,16 @@ function getCoords(): Promise<LocationCoords> {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ---- Location Picker Map Modal ---- */}
+      {isLocationPickerOpen && (
+        <LocationPickerModal
+          initialLat={manualCoords?.latitude}
+          initialLng={manualCoords?.longitude}
+          onConfirm={(coords) => setManualCoords(coords)}
+          onClose={() => setIsLocationPickerOpen(false)}
+        />
       )}
 
       {/* ---- Floating Action Button (FAB) ---- */}
