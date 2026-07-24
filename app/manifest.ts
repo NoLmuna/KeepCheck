@@ -8,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
       "Log and rate your experiences at food and beverage businesses.",
     start_url: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#000000",
+    background_color: "#F8F1E7",
+    theme_color: "#4E342E",
     icons: [
       {
         src: "/KeepCheck-Logo.png",

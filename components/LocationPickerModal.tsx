@@ -110,7 +110,7 @@ export default function LocationPickerModal({
                   onClose();
                 }
               }}
-              className="neu-button rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold bg-accent text-white hover:bg-accent/90 disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial shadow-neu-button"
+              className="neu-button rounded-xl px-5 py-2.5 text-xs sm:text-sm font-bold bg-gold text-[#4E342E] hover:bg-gold/90 disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial shadow-neu-button"
             >
               <Check className="h-4 w-4" />
               <span>Confirm Location</span>

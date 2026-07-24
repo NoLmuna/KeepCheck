@@ -12,19 +12,20 @@
   --font-work-sans: "Work Sans", system-ui, -apple-system, sans-serif;
   --font-space-mono: "Space Mono", Consolas, Monaco, monospace;
 
-  /* Base palette — warm clay / parchment */
-  --bg: #ddd5c8;
-  --surface: #ddd5c8;
-  --text-primary: #2C2018;
-  --text-secondary: #6B5D4F;
-  --accent: #c06830;
-  --accent-glow: #d68a4c;
-  --category-cafe: #8B6F9E;
-  --category-restaurant: #3E6E77;
+  /* Base palette — cream / caramel / sage */
+  --bg: #F8F1E7;
+  --surface: #FCF8F3;
+  --text-primary: #4E342E;
+  --text-secondary: #7D6558;
+  --accent: #D4A373;
+  --accent-glow: #F4C542;
+  --category-cafe: #A3B18A;
+  --category-restaurant: #4E342E;
+  --gold: #F4C542;
 
   /* Neumorphic shadow pairs (light) */
-  --neu-light: #efe7d8;
-  --neu-dark: #c5bdb0;
+  --neu-light: #ffffff;
+  --neu-dark: #e2d6c7;
   --neu-shadow-raised: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
   --neu-shadow-inset: inset 4px 4px 10px var(--neu-dark), inset -4px -4px 10px var(--neu-light);
   --neu-shadow-button: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
@@ -33,18 +34,19 @@
 }
 
 .dark {
-  --bg: #1a1410;
-  --surface: #1a1410;
-  --text-primary: #F0E6D6;
+  --bg: #1C1410;
+  --surface: #261D17;
+  --text-primary: #F8F1E7;
   --text-secondary: #B8A890;
-  --accent: #D68A4C;
-  --accent-glow: #e9a868;
-  --category-cafe: #9b7fb0;
-  --category-restaurant: #4e8e97;
+  --accent: #D4A373;
+  --accent-glow: #F4C542;
+  --category-cafe: #A3B18A;
+  --category-restaurant: #A4897A;
+  --gold: #F4C542;
 
   /* Neumorphic shadow pairs (dark) */
-  --neu-light: #231c16;
-  --neu-dark: #110e0b;
+  --neu-light: #261e18;
+  --neu-dark: #120e0b;
   --neu-shadow-raised: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
   --neu-shadow-inset: inset 4px 4px 10px var(--neu-dark), inset -4px -4px 10px var(--neu-light);
   --neu-shadow-button: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
@@ -66,6 +68,7 @@
   --color-category-restaurant: var(--category-restaurant);
   --color-neu-light: var(--neu-light);
   --color-neu-dark: var(--neu-dark);
+  --color-gold: var(--gold);
 
   --shadow-neu-raised: var(--neu-shadow-raised);
   --shadow-neu-inset: var(--neu-shadow-inset);
@@ -84,6 +87,11 @@
 
 body {
   background: var(--bg);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(212, 163, 115, 0.12) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(163, 177, 138, 0.15) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(244, 197, 66, 0.08) 0px, transparent 50%);
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font-work-sans), system-ui, sans-serif;
 }
@@ -93,8 +101,9 @@ body {
 /* ================================================================== */
 
 .neu-raised {
-  background: var(--bg);
+  background: var(--surface);
   box-shadow: var(--neu-shadow-raised);
+  border: 1px solid rgba(125, 101, 88, 0.12);
   border-radius: 20px;
 }
 
@@ -105,8 +114,9 @@ body {
 }
 
 .neu-button {
-  background: var(--bg);
+  background: var(--surface);
   box-shadow: var(--neu-shadow-button);
+  border: 1px solid rgba(125, 101, 88, 0.1);
   border-radius: 14px;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -123,18 +133,19 @@ body {
 }
 
 .neu-input {
-  background: var(--bg);
+  background: var(--surface);
   box-shadow: var(--neu-shadow-inset);
-  border: none;
+  border: 1px solid rgba(125, 101, 88, 0.15);
   border-radius: 14px;
   padding: 14px 16px;
   color: var(--text-primary);
   font-size: 0.9rem;
   outline: none;
-  transition: box-shadow 0.3s ease, transform 0.2s ease;
+  transition: box-shadow 0.3s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 
 .neu-input:focus {
+  border-color: var(--accent);
   box-shadow: inset 5px 5px 12px var(--neu-dark), inset -5px -5px 12px var(--neu-light), 0 0 0 2px var(--accent);
 }
 
@@ -144,8 +155,9 @@ body {
 }
 
 .neu-card {
-  background: var(--bg);
+  background: var(--surface);
   box-shadow: var(--neu-shadow-raised);
+  border: 1px solid rgba(125, 101, 88, 0.12);
   border-radius: 24px;
   transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -456,7 +468,7 @@ body {
   position: absolute;
   width: 44px;
   height: 44px;
-  background: var(--accent);
+  background: var(--gold);
   border-radius: 50%;
   transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -549,10 +561,10 @@ body {
 
 /* Fixed offline banner at the top */
 .offline-banner {
-  background: linear-gradient(135deg, #b45309, #d97706);
-  color: #fef3c7;
+  background: linear-gradient(135deg, #4E342E, #7D6558);
+  color: #F8F1E7;
   backdrop-filter: blur(12px);
-  box-shadow: 0 4px 20px rgba(180, 83, 9, 0.35), 0 1px 3px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 20px rgba(78, 52, 46, 0.35), 0 1px 3px rgba(0, 0, 0, 0.2);
   animation: offline-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
   letter-spacing: 0.02em;
 }
@@ -564,9 +576,10 @@ body {
 
 /* Sync toast (success notification when reconnected) */
 .sync-toast {
-  background: linear-gradient(135deg, #065f46, #047857);
-  color: #d1fae5;
-  box-shadow: 0 8px 32px rgba(4, 120, 87, 0.4), var(--neu-shadow-raised);
+  background: linear-gradient(135deg, #A3B18A, #8F9E75);
+  color: #1C1410;
+  font-weight: 600;
+  box-shadow: 0 8px 32px rgba(163, 177, 138, 0.4), var(--neu-shadow-raised);
   animation: toast-pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
 }
 
@@ -587,15 +600,15 @@ body {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #b45309, #d97706);
-  color: #fef3c7;
-  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.4);
+  background: linear-gradient(135deg, #D4A373, #F4C542);
+  color: #4E342E;
+  box-shadow: 0 2px 8px rgba(212, 163, 115, 0.4);
   animation: badge-pulse 2s ease-in-out infinite;
 }
 
 @keyframes badge-pulse {
-  0%, 100% { box-shadow: 0 2px 8px rgba(180, 83, 9, 0.4); transform: scale(1); }
-  50% { box-shadow: 0 2px 16px rgba(180, 83, 9, 0.7); transform: scale(1.08); }
+  0%, 100% { box-shadow: 0 2px 8px rgba(212, 163, 115, 0.4); transform: scale(1); }
+  50% { box-shadow: 0 2px 16px rgba(244, 197, 66, 0.7); transform: scale(1.08); }
 }
 
 /* Pending sync pill in activity feed list */
@@ -609,9 +622,9 @@ body {
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  background: linear-gradient(135deg, #b45309, #d97706);
-  color: #fef3c7;
-  box-shadow: 0 1px 4px rgba(180, 83, 9, 0.3);
+  background: linear-gradient(135deg, #D4A373, #F4C542);
+  color: #4E342E;
+  box-shadow: 0 1px 4px rgba(212, 163, 115, 0.3);
   white-space: nowrap;
 }
 

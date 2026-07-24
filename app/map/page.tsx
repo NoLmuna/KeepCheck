@@ -39,9 +39,9 @@ export default function MapPage() {
     <AuthGuard>
       {/* ---- Background blobs (GPU-contained) ---- */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-40 blob-container" style={{ filter: "url(#gooey-bg)" }}>
-        <div className="animate-blob-1 absolute -top-32 -left-32 h-80 w-80 rounded-full bg-accent/10" />
-        <div className="animate-blob-2 absolute -bottom-40 -right-24 h-96 w-96 rounded-full bg-category-cafe/10" />
-        <div className="animate-blob-3 absolute top-1/2 left-1/3 h-56 w-56 rounded-full bg-category-restaurant/10" />
+        <div className="animate-blob-1 absolute -top-32 -left-32 h-80 w-80 rounded-full bg-accent/15" />
+        <div className="animate-blob-2 absolute -bottom-40 -right-24 h-96 w-96 rounded-full bg-category-cafe/15" />
+        <div className="animate-blob-3 absolute top-1/2 left-1/3 h-56 w-56 rounded-full bg-gold/15" />
       </div>
 
       {/* SVG Gooey filters for background */}
@@ -68,7 +68,7 @@ export default function MapPage() {
             </Link>
             <div>
               <h1 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight text-text-primary">
-                Keep<span className="text-accent">Check</span> <span className="text-text-secondary font-sans font-normal text-lg sm:text-xl ml-1 sm:ml-2">/ Map</span>
+                Keep<span className="text-category-cafe">Check</span> <span className="text-text-secondary font-sans font-normal text-lg sm:text-xl ml-1 sm:ml-2">/ Map</span>
               </h1>
             </div>
           </div>

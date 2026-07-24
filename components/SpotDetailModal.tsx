@@ -162,7 +162,7 @@ export default function SpotDetailModal({
                 {regenerating ? "Regenerating…" : "Regenerate Thumbnail"}
               </button>
             ) : (
-              <p className="text-xs font-mono text-accent animate-page-enter">
+              <p className="text-xs font-mono text-category-cafe font-bold animate-page-enter">
                 ✓ Thumbnail updated
               </p>
             )}

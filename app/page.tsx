@@ -95,7 +95,9 @@ const CategoryPills = memo(function CategoryPills({
       {/* Gooey filter layer for background */}
       <div className="absolute inset-0 pointer-events-none rounded-2xl overflow-hidden" style={{ filter: "url(#gooey-medium)" }}>
         <div
-          className="absolute h-9 bg-accent rounded-xl transition-all duration-300 ease-out"
+          className={`absolute h-9 rounded-xl transition-all duration-300 ease-out ${
+            value === "Cafe" ? "bg-category-cafe" : "bg-category-restaurant"
+          }`}
           style={{
             width: "calc(50% - 10px)",
             left: value === "Cafe" ? "6px" : "calc(50% + 4px)",
@@ -142,7 +144,7 @@ const RatingPills = memo(function RatingPills({
       {/* Gooey filter layer */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl" style={{ filter: "url(#gooey-rating)" }}>
         <div
-          className="absolute h-9 w-9 rounded-full bg-accent transition-all duration-300 ease-out"
+          className="absolute h-9 w-9 rounded-full bg-gold transition-all duration-300 ease-out"
           style={{
             left: `calc(6px + ${(value - 1)} * (100% - 48px) / 9)`,
             top: "8px",
@@ -176,12 +178,15 @@ const RatingPills = memo(function RatingPills({
 /*  Category badge (card display)                                      */
 /* ------------------------------------------------------------------ */
 const CategoryBadge = memo(function CategoryBadge({ category }: { category: SpotCategory }) {
-  const bg = category === "Cafe" ? "bg-category-cafe" : "bg-category-restaurant";
-  const label = category === "Cafe" ? "☕ Cafe" : "🍽️ Restaurant";
+  const isCafe = category === "Cafe";
+  const label = isCafe ? "☕ Cafe" : "🍽️ Restaurant";
+  const styles = isCafe
+    ? "bg-[#A3B18A] text-[#1C1410] font-bold shadow-sm"
+    : "bg-[#4E342E] text-[#F8F1E7] font-bold shadow-sm";
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase text-white ${bg}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] tracking-wider uppercase ${styles}`}
     >
       {label}
     </span>
@@ -230,14 +235,14 @@ const SpotCard = memo(function SpotCard({
             className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
           />
           {/* Rating badge overlay */}
-          <div className="absolute top-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg/90 shadow-neu-subtle font-mono text-sm font-bold text-accent backdrop-blur-sm">
+          <div className="absolute top-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg/90 shadow-neu-subtle font-mono text-sm font-bold text-gold backdrop-blur-sm">
             {spot.rating}
           </div>
         </div>
       ) : (
         <div className="h-28 w-full bg-bg/40 flex items-center justify-center shadow-neu-inset relative">
           <span className="text-3xl opacity-45">{spot.category === "Cafe" ? "☕" : "🍽️"}</span>
-          <div className="absolute top-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-bg shadow-neu-subtle font-mono text-xs font-bold text-accent">
+          <div className="absolute top-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-bg shadow-neu-subtle font-mono text-xs font-bold text-gold">
             {spot.rating}
           </div>
         </div>
@@ -420,7 +425,7 @@ const FeedListItem = memo(function FeedListItem({
             <span className="hidden sm:inline">Offline</span>
           </span>
         )}
-        <span className="font-bold font-mono text-accent text-xs bg-bg/50 shadow-neu-inset px-2.5 py-1 rounded-full">
+        <span className="font-bold font-mono text-gold text-xs bg-bg/50 shadow-neu-inset px-2.5 py-1 rounded-full">
           ★ {spot.rating}
         </span>
         <button
@@ -1276,7 +1281,7 @@ function getCoords(): Promise<LocationCoords> {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold tracking-tight text-text-primary">
-              Keep<span className="text-accent">Check</span>
+              Keep<span className="text-category-cafe">Check</span>
             </h1>
             <p className="mt-1 text-sm sm:text-base text-text-secondary">
               Track &amp; rate every café and restaurant.
@@ -1298,7 +1303,7 @@ function getCoords(): Promise<LocationCoords> {
               <button
                 type="button"
                 onClick={openFormModal}
-                className="hidden md:inline-flex items-center gap-1.5 neu-button rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold text-accent cursor-pointer hover:text-accent-glow"
+                className="hidden md:inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold bg-gold text-[#4E342E] shadow-neu-button hover:bg-gold/90 active:scale-95 transition-all cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
                 Add Spot
@@ -1459,7 +1464,7 @@ function getCoords(): Promise<LocationCoords> {
                       onClick={() => setPageSize(size)}
                       className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
                         pageSize === size
-                          ? "bg-accent text-white shadow-neu-subtle"
+                          ? "bg-accent text-[#4E342E] shadow-neu-subtle font-extrabold"
                           : "text-text-secondary hover:text-text-primary"
                       }`}
                     >
@@ -1476,7 +1481,7 @@ function getCoords(): Promise<LocationCoords> {
                   onClick={() => setFeedViewMode("list")}
                   className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                     feedViewMode === "list"
-                      ? "bg-accent text-white shadow-neu-subtle"
+                      ? "bg-accent text-[#4E342E] shadow-neu-subtle font-bold"
                       : "text-text-secondary hover:text-text-primary"
                   }`}
                   title="Compact List View"
@@ -1489,7 +1494,7 @@ function getCoords(): Promise<LocationCoords> {
                   onClick={() => setFeedViewMode("grid")}
                   className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                     feedViewMode === "grid"
-                      ? "bg-accent text-white shadow-neu-subtle"
+                      ? "bg-accent text-[#4E342E] shadow-neu-subtle font-bold"
                       : "text-text-secondary hover:text-text-primary"
                   }`}
                   title="Grid Cards View"
@@ -1629,7 +1634,7 @@ function getCoords(): Promise<LocationCoords> {
                         onClick={() => setCurrentPage(pageNum)}
                         className={`h-8 w-8 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center ${
                           currentPage === pageNum
-                            ? "bg-accent text-white shadow-neu-subtle"
+                            ? "bg-accent text-[#4E342E] shadow-neu-subtle font-extrabold"
                             : "neu-button text-text-secondary hover:text-text-primary"
                         }`}
                       >
@@ -1758,7 +1763,7 @@ function getCoords(): Promise<LocationCoords> {
               <div>
                 <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary flex justify-between">
                   <span>Rating</span>
-                  <span className="font-mono text-accent">({rating} / 10)</span>
+                  <span className="font-mono text-gold">({rating} / 10)</span>
                 </p>
                 <RatingPills value={rating} onChange={setRating} />
               </div>
@@ -1923,11 +1928,11 @@ function getCoords(): Promise<LocationCoords> {
                 type="submit"
                 disabled={saving || !name.trim() || success}
                 className={`
-                  w-full rounded-2xl py-3 text-sm sm:text-base font-semibold text-white
+                  w-full rounded-2xl py-3 text-sm sm:text-base font-bold
                   transition-all duration-300 cursor-pointer min-h-[44px] flex items-center justify-center gap-2
                   ${success
-                    ? "bg-green-600 shadow-neu-inset scale-[0.98]"
-                    : "bg-accent shadow-neu-button hover:shadow-neu-raised active:shadow-neu-inset"
+                    ? "bg-green-600 text-white shadow-neu-inset scale-[0.98]"
+                    : "bg-gold text-[#4E342E] shadow-neu-button hover:bg-gold/90 hover:shadow-neu-raised active:shadow-neu-inset"
                   }
                   disabled:opacity-40
                 `}
@@ -1969,10 +1974,10 @@ function getCoords(): Promise<LocationCoords> {
           onMouseLeave={() => handleFABHover(false)}
           onMouseDown={() => handleFABPress(true)}
           onMouseUp={() => handleFABPress(false)}
-          className="gsap-fab fixed bottom-6 right-6 z-40 neu-button h-14 w-14 rounded-full bg-accent text-white flex items-center justify-center shadow-lg cursor-pointer transition-all duration-300 group md:hidden"
+          className="gsap-fab fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full bg-gold text-[#4E342E] font-bold flex items-center justify-center shadow-lg cursor-pointer transition-all duration-300 group md:hidden hover:scale-105 active:scale-95"
           aria-label="Add new spot"
         >
-          <Plus className="h-6 w-6 text-white" />
+          <Plus className="h-6 w-6 text-[#4E342E]" />
         </button>
       )}
 

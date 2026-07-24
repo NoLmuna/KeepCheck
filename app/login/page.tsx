@@ -42,7 +42,7 @@ function QuickLoginRow({
           referrerPolicy="no-referrer"
         />
       ) : (
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/20 text-accent font-bold text-sm">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/25 text-[#4E342E] font-bold text-sm">
           {(account.displayName?.[0] ?? account.email?.[0] ?? "?").toUpperCase()}
         </div>
       )}
@@ -125,8 +125,8 @@ export default function LoginPage() {
       {/* ---- Animated background blobs ---- */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden" style={{ filter: "url(#gooey-login)" }}>
         <div className="animate-blob-1 absolute -top-24 -left-24 h-72 w-72 rounded-full bg-accent/15" />
-        <div className="animate-blob-2 absolute -bottom-32 -right-20 h-80 w-80 rounded-full bg-category-cafe/15" />
-        <div className="animate-blob-3 absolute top-1/3 right-1/4 h-48 w-48 rounded-full bg-category-restaurant/15" />
+        <div className="animate-blob-2 absolute -bottom-32 -right-20 h-80 w-80 rounded-full bg-category-cafe/20" />
+        <div className="animate-blob-3 absolute top-1/3 right-1/4 h-48 w-48 rounded-full bg-gold/20" />
       </div>
 
       {/* ---- Main card ---- */}
@@ -141,7 +141,7 @@ export default function LoginPage() {
             />
           </div>
           <h1 className="text-3xl font-serif font-bold tracking-tight text-text-primary">
-            Keep<span className="text-accent">Check</span>
+            Keep<span className="text-category-cafe">Check</span>
           </h1>
           <p className="mt-2 text-sm text-text-secondary">
             Track &amp; rate every café and restaurant.
