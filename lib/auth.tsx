@@ -22,6 +22,7 @@ import {
   SessionProvider,
 } from "next-auth/react";
 import { getFirebaseAuth } from "./firebase";
+import { useToast } from "./toast";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -125,6 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 function AuthProviderInner({ children }: { children: ReactNode }) {
   const { data: nextAuthSession, status: nextAuthStatus } = useSession();
+  const { showToast } = useToast();
 
   const [user, setUser] = useState<User | null>(null);
   const [firebaseLoading, setFirebaseLoading] = useState(true);
@@ -133,6 +135,9 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     QuickLoginAccount[]
   >([]);
   const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
+
+  // Guard to prevent repeating welcome toast
+  const prevUserRef = useRef<User | null>(null);
 
   // ---- Ref guard: prevent duplicate token-bridge calls ----
   // Similar to the old redirectHandled ref — ensures the POST to
@@ -181,6 +186,12 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   // Listen to Firebase auth state.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (firebaseUser) => {
+      if (firebaseUser && !prevUserRef.current) {
+        const name = firebaseUser.displayName ?? firebaseUser.email ?? "User";
+        showToast(`👋 Welcome back, ${name}!`, "success");
+      }
+      prevUserRef.current = firebaseUser;
+
       setUser(firebaseUser);
       setFirebaseLoading(false);
 
@@ -197,7 +208,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       }
     });
     return unsubscribe;
-  }, [saveToQuickLogin]);
+  }, [saveToQuickLogin, showToast]);
 
   // ---- NextAuth → Firebase token bridge ----
   //
@@ -239,9 +250,10 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         // Reset the guard so the user can retry (e.g. by refreshing).
         tokenBridgeInFlight.current = false;
         setBridgeError(err instanceof Error ? err.message : String(err));
+        showToast("Authentication session error. Please try again.", "error");
       }
     })();
-  }, [nextAuthStatus, nextAuthSession, user]);
+  }, [nextAuthStatus, nextAuthSession, user, showToast]);
 
   // Sign in with Google via NextAuth's OAuth flow.
   // NextAuth handles the full OAuth redirect → callback → session lifecycle.
@@ -257,6 +269,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   // of clearing local state instantly without a full page reload/navigation.
   const signOut = useCallback(async () => {
     console.log("[KeepCheck AuthContext] signOut called");
+    showToast("👋 Signed out successfully", "info");
 
     try {
       // 1. Sign out of NextAuth without redirecting — explicitly set { redirect: false }
@@ -286,7 +299,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     // Set user to null to trigger AuthGuard redirect
     console.log("[KeepCheck AuthContext] Setting user to null");
     setUser(null);
-  }, []);
+  }, [showToast]);
 
   const loading =
     firebaseLoading ||

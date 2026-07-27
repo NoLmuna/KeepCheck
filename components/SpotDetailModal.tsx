@@ -7,6 +7,7 @@ import { makeThumbnailFromBlob } from "@/utils/image";
 import { X, ImageOff, RefreshCw } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { writeSpotToFirestore } from "@/lib/firestore";
+import { useToast } from "@/lib/toast";
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -33,6 +34,7 @@ export default function SpotDetailModal({
   );
 
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
@@ -99,13 +101,14 @@ export default function SpotDetailModal({
       }
 
       setRegenerated(true);
+      showToast("✓ Thumbnail updated successfully!", "success");
     } catch (err) {
       console.error("[KeepCheck] Thumbnail regeneration failed:", err);
-      alert("Could not regenerate thumbnail. Please try again.");
+      showToast("Could not regenerate thumbnail. Please try again.", "error");
     } finally {
       setRegenerating(false);
     }
-  }, [image, spotId, user]);
+  }, [image, spotId, user, showToast]);
 
   /* ---- Render ---- */
   return (

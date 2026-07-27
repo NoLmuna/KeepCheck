@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, type QuickLoginAccount } from "@/lib/auth";
+import { useToast } from "@/lib/toast";
 
 /* ------------------------------------------------------------------ */
 /*  Google icon SVG                                                    */
@@ -72,6 +73,7 @@ function QuickLoginRow({
 /* ------------------------------------------------------------------ */
 export default function LoginPage() {
   const { user, loading, signInWithGoogle, quickLoginAccounts } = useAuth();
+  const { showToast } = useToast();
   const router = useRouter();
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +91,9 @@ export default function LoginPage() {
     try {
       await signInWithGoogle(email);
     } catch {
-      setError("Sign-in failed. Please try again.");
+      const msg = "Sign-in failed. Please try again.";
+      setError(msg);
+      showToast(msg, "error");
     } finally {
       setSigningIn(false);
     }

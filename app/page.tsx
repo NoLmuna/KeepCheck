@@ -8,6 +8,7 @@ import { makeThumbnail, compressToBlob, compressBlobToSafeBase64 } from "@/utils
 import SpotDetailModal from "@/components/SpotDetailModal";
 import AuthGuard from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/lib/toast";
 import {
   generateSpotId,
   writeSpotToFirestore,
@@ -95,9 +96,8 @@ const CategoryPills = memo(function CategoryPills({
       {/* Gooey filter layer for background */}
       <div className="absolute inset-0 pointer-events-none rounded-2xl overflow-hidden" style={{ filter: "url(#gooey-medium)" }}>
         <div
-          className={`absolute h-9 rounded-xl transition-all duration-300 ease-out ${
-            value === "Cafe" ? "bg-category-cafe" : "bg-category-restaurant"
-          }`}
+          className={`absolute h-9 rounded-xl transition-all duration-300 ease-out ${value === "Cafe" ? "bg-category-cafe" : "bg-category-restaurant"
+            }`}
           style={{
             width: "calc(50% - 10px)",
             left: value === "Cafe" ? "6px" : "calc(50% + 4px)",
@@ -110,18 +110,16 @@ const CategoryPills = memo(function CategoryPills({
       <button
         type="button"
         onClick={() => onChange("Cafe")}
-        className={`relative z-10 w-1/2 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 min-h-[38px] cursor-pointer ${
-          value === "Cafe" ? "text-white font-bold" : "text-text-secondary hover:text-text-primary"
-        }`}
+        className={`relative z-10 w-1/2 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 min-h-[38px] cursor-pointer ${value === "Cafe" ? "text-white font-bold" : "text-text-secondary hover:text-text-primary"
+          }`}
       >
         ☕ Cafe
       </button>
       <button
         type="button"
         onClick={() => onChange("Restaurant")}
-        className={`relative z-10 w-1/2 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 min-h-[38px] cursor-pointer ${
-          value === "Restaurant" ? "text-white font-bold" : "text-text-secondary hover:text-text-primary"
-        }`}
+        className={`relative z-10 w-1/2 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 min-h-[38px] cursor-pointer ${value === "Restaurant" ? "text-white font-bold" : "text-text-secondary hover:text-text-primary"
+          }`}
       >
         🍽️ Restaurant
       </button>
@@ -287,11 +285,10 @@ const PillButton = memo(function PillButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-4 py-2.5 text-xs md:text-sm font-medium transition-all duration-300 cursor-pointer whitespace-nowrap min-h-[40px] ${
-        active
+      className={`rounded-xl px-4 py-2.5 text-xs md:text-sm font-medium transition-all duration-300 cursor-pointer whitespace-nowrap min-h-[40px] ${active
           ? "shadow-neu-inset text-accent font-semibold"
           : "shadow-neu-subtle text-text-secondary hover:text-text-primary active:shadow-neu-inset"
-      }`}
+        }`}
     >
       {label}
     </button>
@@ -416,7 +413,7 @@ const FeedListItem = memo(function FeedListItem({
           </div>
         </div>
       </div>
-      
+
       <div className="flex items-center gap-3.5 flex-shrink-0">
         {/* Pending sync indicator in list view */}
         {spot.pendingSync && (
@@ -469,7 +466,7 @@ function HomePage() {
 
   /* -- Online/offline state -- */
   const [isOnline, setIsOnline] = useState(true);
-  const [syncToastMsg, setSyncToastMsg] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   /* -- Modal control state -- */
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -673,14 +670,13 @@ function HomePage() {
       (online) => setIsOnline(online),
       (syncedCount) => {
         if (syncedCount > 0) {
-          setSyncToastMsg(`✓ Synced ${syncedCount} offline log${syncedCount > 1 ? "s" : ""}`);
-          setTimeout(() => setSyncToastMsg(null), 3500);
+          showToast(`✓ Synced ${syncedCount} offline log${syncedCount > 1 ? "s" : ""}`, "success");
         }
       },
     );
 
     return cleanup;
-  }, [user]);
+  }, [user, showToast]);
 
   // Reactive query — uses effectiveUid so data loads from Dexie even before Firebase auth resolves
   const spots = useLiveQuery(() => {
@@ -840,10 +836,10 @@ function HomePage() {
     setIsFormOpen(true);
   };
 
-  const closeFormModal = () => {
+  const closeFormModal = useCallback(() => {
     if (modalContentRef.current && backdropOverlayRef.current && modalGooeyBgRef.current) {
       const isMobile = window.innerWidth < 640;
-      
+
       const tl = gsap.timeline({
         onComplete: () => {
           setIsFormOpen(false);
@@ -852,34 +848,39 @@ function HomePage() {
 
       tl.to(backdropOverlayRef.current, {
         opacity: 0,
-        duration: 0.25,
+        duration: 0.18,
         ease: "power2.in"
       })
-      .to(
-        modalContentRef.current,
-        {
-          opacity: 0,
-          y: isMobile ? 30 : 15,
-          duration: 0.2,
-          ease: "power2.in"
-        },
-        "-=0.2"
-      )
-      .to(
-        modalGooeyBgRef.current,
-        {
-          y: isMobile ? "100%" : 100,
-          scale: isMobile ? 0.8 : 0.7,
-          opacity: 0,
-          duration: 0.45,
-          ease: "back.in(1.2)"
-        },
-        "-=0.2"
-      );
+        .to(
+          modalContentRef.current,
+          {
+            opacity: 0,
+            y: isMobile ? 25 : 12,
+            duration: 0.15,
+            ease: "power2.in"
+          },
+          "-=0.15"
+        )
+        .to(
+          modalGooeyBgRef.current,
+          {
+            y: isMobile ? "100%" : 80,
+            scale: isMobile ? 0.85 : 0.75,
+            opacity: 0,
+            duration: 0.22,
+            ease: "power2.in"
+          },
+          "-=0.15"
+        );
+
+      // Fallback timer: guarantee modal is removed from DOM even if animation context is interrupted
+      setTimeout(() => {
+        setIsFormOpen(false);
+      }, 250);
     } else {
       setIsFormOpen(false);
     }
-  };
+  }, []);
 
   // Trigger GSAP entrance when form state flips to open
   useEffect(() => {
@@ -904,27 +905,27 @@ function HomePage() {
         opacity: 1,
         duration: 0.3
       })
-      .to(
-        modalGooeyBgRef.current,
-        {
-          y: 0,
-          scale: 1,
-          opacity: 1,
-          duration: 0.55,
-          ease: isMobile ? "power3.out" : "back.out(1.3)"
-        },
-        "-=0.2"
-      )
-      .to(
-        modalContentRef.current,
-        {
-          opacity: 1,
-          y: 0,
-          duration: 0.35,
-          ease: "power2.out"
-        },
-        "-=0.25"
-      );
+        .to(
+          modalGooeyBgRef.current,
+          {
+            y: 0,
+            scale: 1,
+            opacity: 1,
+            duration: 0.55,
+            ease: isMobile ? "power3.out" : "back.out(1.3)"
+          },
+          "-=0.2"
+        )
+        .to(
+          modalContentRef.current,
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.35,
+            ease: "power2.out"
+          },
+          "-=0.25"
+        );
     }
   }, [isFormOpen]);
 
@@ -961,71 +962,71 @@ function HomePage() {
 
   /* ---------- handlers ---------- */
 
-interface LocationCoords {
-  latitude?: number;
-  longitude?: number;
-}
+  interface LocationCoords {
+    latitude?: number;
+    longitude?: number;
+  }
 
-function getCoords(): Promise<LocationCoords> {
-  return new Promise((resolve) => {
-    console.log("[KeepCheck Geolocation] Attempting to capture current position (timeout: 5000ms)...");
+  function getCoords(): Promise<LocationCoords> {
+    return new Promise((resolve) => {
+      console.log("[KeepCheck Geolocation] Attempting to capture current position (timeout: 5000ms)...");
 
-    if (typeof window === "undefined" || !navigator.geolocation) {
-      console.warn("[KeepCheck Geolocation] Geolocation is not supported by this browser or environment.");
-      resolve({});
-      return;
-    }
-
-    let resolved = false;
-    const timeoutId = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        console.warn("[KeepCheck Geolocation] Geolocation capture timed out after 5000ms.");
+      if (typeof window === "undefined" || !navigator.geolocation) {
+        console.warn("[KeepCheck Geolocation] Geolocation is not supported by this browser or environment.");
         resolve({});
+        return;
       }
-    }, 5000);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
+      let resolved = false;
+      const timeoutId = setTimeout(() => {
         if (!resolved) {
-          clearTimeout(timeoutId);
           resolved = true;
-          console.log(
-            `[KeepCheck Geolocation] Successfully captured position: lat=${position.coords.latitude}, lng=${position.coords.longitude} (accuracy: ${position.coords.accuracy}m)`
-          );
-          resolve({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          });
-        }
-      },
-      (error) => {
-        if (!resolved) {
-          clearTimeout(timeoutId);
-          resolved = true;
-          
-          let reason = "Unknown error";
-          if (error.code === error.PERMISSION_DENIED) {
-            reason = "Permission denied by user";
-          } else if (error.code === error.POSITION_UNAVAILABLE) {
-            reason = "Position unavailable";
-          } else if (error.code === error.TIMEOUT) {
-            reason = "Timeout";
-          }
-          console.warn(
-            `[KeepCheck Geolocation] Geolocation capture failed: ${reason} (code: ${error.code}, message: ${error.message})`
-          );
+          console.warn("[KeepCheck Geolocation] Geolocation capture timed out after 5000ms.");
           resolve({});
         }
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 5000,
-        maximumAge: 0,
-      }
-    );
-  });
-}
+      }, 5000);
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!resolved) {
+            clearTimeout(timeoutId);
+            resolved = true;
+            console.log(
+              `[KeepCheck Geolocation] Successfully captured position: lat=${position.coords.latitude}, lng=${position.coords.longitude} (accuracy: ${position.coords.accuracy}m)`
+            );
+            resolve({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            });
+          }
+        },
+        (error) => {
+          if (!resolved) {
+            clearTimeout(timeoutId);
+            resolved = true;
+
+            let reason = "Unknown error";
+            if (error.code === error.PERMISSION_DENIED) {
+              reason = "Permission denied by user";
+            } else if (error.code === error.POSITION_UNAVAILABLE) {
+              reason = "Position unavailable";
+            } else if (error.code === error.TIMEOUT) {
+              reason = "Timeout";
+            }
+            console.warn(
+              `[KeepCheck Geolocation] Geolocation capture failed: ${reason} (code: ${error.code}, message: ${error.message})`
+            );
+            resolve({});
+          }
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 5000,
+          maximumAge: 0,
+        }
+      );
+    });
+  }
 
   const handleCaptureCurrentGPS = async () => {
     setGettingGps(true);
@@ -1033,8 +1034,9 @@ function getCoords(): Promise<LocationCoords> {
     setGettingGps(false);
     if (res.latitude !== undefined && res.longitude !== undefined) {
       setManualCoords({ latitude: res.latitude, longitude: res.longitude });
+      showToast("📍 Location set to current GPS position", "info");
     } else {
-      alert("Could not detect current position. You can pin the location manually on the map!");
+      showToast("Could not detect GPS position. Pin manually on map!", "error");
     }
   };
 
@@ -1057,9 +1059,7 @@ function getCoords(): Promise<LocationCoords> {
           ]);
         } catch (imgErr) {
           console.error("[KeepCheck] Image processing failed:", imgErr);
-          alert(
-            "Could not process this image format. Try taking a JPEG photo instead.",
-          );
+          showToast("Could not process this image format. Try taking a standard JPEG photo.", "error");
           setSaving(false);
           return;
         }
@@ -1149,7 +1149,11 @@ function getCoords(): Promise<LocationCoords> {
         console.warn("[KeepCheck] Firestore write failed — queued for sync when online:", firestoreErr);
       }
 
-      // ---- 3. Reset form & show success ----
+      // ---- 3. Close modal immediately & show sleek toast notification ----
+      closeFormModal();
+      showToast(`🎉 "${trimmed}" logged successfully!`, "success", category === "Cafe" ? "☕" : "🍽️");
+
+      // Reset form fields
       setName("");
       setCategory("Restaurant");
       setRating(7);
@@ -1157,31 +1161,20 @@ function getCoords(): Promise<LocationCoords> {
       setImageFile(null);
       setManualCoords(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      
-      setSuccess(true);
-      
-      setTimeout(() => {
-        setSuccess(false);
-        closeFormModal();
-      }, 1200);
     } catch (err: unknown) {
       if (
         err instanceof DOMException &&
         err.name === "QuotaExceededError"
       ) {
-        alert(
-          "Your device is out of storage space. Free some space and try again.",
-        );
+        showToast("Your device is out of storage space. Free space and try again.", "error");
       } else {
         console.error("[KeepCheck] Save failed:", err);
-        alert("Something went wrong while saving. Please try again.");
+        showToast("Something went wrong while saving spot. Please try again.", "error");
       }
     } finally {
       setSaving(false);
     }
   }
-
-
 
   async function deleteEntry(id: number) {
     try {
@@ -1208,6 +1201,8 @@ function getCoords(): Promise<LocationCoords> {
         }
       }
 
+      showToast(`🗑️ Spot deleted`, "delete");
+
       setDeletingIds((prev: Set<number>) => {
         const next = new Set<number>(prev);
         next.delete(id);
@@ -1215,6 +1210,7 @@ function getCoords(): Promise<LocationCoords> {
       });
     } catch (error) {
       console.error("Failed to delete entry:", error);
+      showToast("Failed to delete entry", "error");
       setDeletingIds((prev: Set<number>) => {
         const next = new Set<number>(prev);
         next.delete(id);
@@ -1268,13 +1264,7 @@ function getCoords(): Promise<LocationCoords> {
         </div>
       )}
 
-      {/* ---- Sync Toast ---- */}
-      {syncToastMsg && (
-        <div className="sync-toast fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
-          <Cloud className="h-4 w-4" />
-          <span>{syncToastMsg}</span>
-        </div>
-      )}
+
 
       {/* ---- Header ---- */}
       <header className={`relative z-40 mb-6 sm:mb-8 gsap-header gsap-reveal ${!isOnline ? 'mt-10' : ''}`}>
@@ -1297,7 +1287,7 @@ function getCoords(): Promise<LocationCoords> {
               <MapPin className="h-5 w-5" />
             </Link>
             <ThemeToggle dark={dark} onToggle={() => setDark((d: boolean) => !d)} />
-            
+
             {/* Desktop Add Spot button */}
             {effectiveUid && (
               <button
@@ -1436,7 +1426,7 @@ function getCoords(): Promise<LocationCoords> {
 
       {/* ---- Bottom Section: Activity Feed & Logs ---- */}
       <section className="w-full mb-16">
-        
+
         {/* Activity feed controls header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4 gsap-feed-header gsap-reveal">
           <div className="flex items-center gap-2.5">
@@ -1462,11 +1452,10 @@ function getCoords(): Promise<LocationCoords> {
                       key={size}
                       type="button"
                       onClick={() => setPageSize(size)}
-                      className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
-                        pageSize === size
+                      className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${pageSize === size
                           ? "bg-accent text-[#4E342E] shadow-neu-subtle font-extrabold"
                           : "text-text-secondary hover:text-text-primary"
-                      }`}
+                        }`}
                     >
                       {size}
                     </button>
@@ -1479,11 +1468,10 @@ function getCoords(): Promise<LocationCoords> {
                 <button
                   type="button"
                   onClick={() => setFeedViewMode("list")}
-                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                    feedViewMode === "list"
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${feedViewMode === "list"
                       ? "bg-accent text-[#4E342E] shadow-neu-subtle font-bold"
                       : "text-text-secondary hover:text-text-primary"
-                  }`}
+                    }`}
                   title="Compact List View"
                   aria-label="List view"
                 >
@@ -1492,11 +1480,10 @@ function getCoords(): Promise<LocationCoords> {
                 <button
                   type="button"
                   onClick={() => setFeedViewMode("grid")}
-                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                    feedViewMode === "grid"
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${feedViewMode === "grid"
                       ? "bg-accent text-[#4E342E] shadow-neu-subtle font-bold"
                       : "text-text-secondary hover:text-text-primary"
-                  }`}
+                    }`}
                   title="Grid Cards View"
                   aria-label="Grid view"
                 >
@@ -1632,11 +1619,10 @@ function getCoords(): Promise<LocationCoords> {
                         key={pageNum}
                         type="button"
                         onClick={() => setCurrentPage(pageNum)}
-                        className={`h-8 w-8 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center ${
-                          currentPage === pageNum
+                        className={`h-8 w-8 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center ${currentPage === pageNum
                             ? "bg-accent text-[#4E342E] shadow-neu-subtle font-extrabold"
                             : "neu-button text-text-secondary hover:text-text-primary"
-                        }`}
+                          }`}
                       >
                         {pageNum}
                       </button>
@@ -1960,7 +1946,10 @@ function getCoords(): Promise<LocationCoords> {
         <LocationPickerModal
           initialLat={manualCoords?.latitude}
           initialLng={manualCoords?.longitude}
-          onConfirm={(coords) => setManualCoords(coords)}
+          onConfirm={(coords) => {
+            setManualCoords(coords);
+            showToast("📍 Location pin saved", "info");
+          }}
           onClose={() => setIsLocationPickerOpen(false)}
         />
       )}

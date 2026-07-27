@@ -11,7 +11,7 @@ interface SpotsMapProps {
 
 const createCustomIcon = (spot: FoodSpotLog) => {
   const categoryColor = spot.category === "Cafe" ? "var(--category-cafe)" : "var(--category-restaurant)";
-  
+
   const htmlContent = `
     <div style="
       display: flex;
@@ -81,15 +81,14 @@ export default function SpotsMap({ spots }: SpotsMapProps) {
     validSpots.forEach((spot) => {
       const popupContent = `
         <div style="display: flex; flex-direction: column; gap: 8px; width: 140px; font-family: var(--font-work-sans), sans-serif; padding: 2px;">
-          ${
-            spot.thumbnail
-              ? `<div style="width: 100%; height: 80px; overflow: hidden; border-radius: 8px;">
+          ${spot.thumbnail
+          ? `<div style="width: 100%; height: 80px; overflow: hidden; border-radius: 8px;">
                    <img src="${spot.thumbnail}" alt="${spot.name}" style="width: 100%; height: 100%; object-fit: cover;" />
                  </div>`
-              : `<div style="width: 100%; height: 48px; background: rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 8px;">
+          : `<div style="width: 100%; height: 48px; background: rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 8px;">
                    ${spot.category === "Cafe" ? "☕" : "🍽️"}
                  </div>`
-          }
+        }
           <div style="display: flex; flex-direction: column; gap: 2px;">
             <h3 style="font-family: var(--font-fraunces), Georgia, serif; font-weight: bold; font-size: 14px; margin: 0; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${spot.name}</h3>
             <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
