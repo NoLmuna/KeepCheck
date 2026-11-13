@@ -185,6 +185,10 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   // Listen to Firebase auth state.
   useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
+      setFirebaseLoading(false);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (firebaseUser) => {
       if (firebaseUser && !prevUserRef.current) {
         const name = firebaseUser.displayName ?? firebaseUser.email ?? "User";

@@ -751,3 +751,34 @@ body {
 
 
 
+
+/* Venue-first map controls stay thumb-sized and keyboard-visible. */
+.venue-map button, .venue-map input, .venue-map select, .venue-map a { min-height: 44px; }
+.venue-map button, .venue-map select, .venue-map a { min-width: 44px; }
+.venue-map :focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+.venue-map .leaflet-control-zoom a { width: 44px; height: 44px; line-height: 44px; }
+.venue-map .leaflet-control-attribution a { min-height: 0; min-width: 0; }
+.venue-marker { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; background: #fff7ed; border: 2px solid #a16207; color: #422006; font-size: 21px; box-shadow: 0 2px 8px #0003; }
+.venue-marker-saved { background: #5b4636; border-color: white; color: white; font-size: 15px; font-weight: 700; }
+.venue-marker-active { outline: 4px solid #2563eb; transform: scale(1.15); }
+.user-location-dot { border: 3px solid white; border-radius: 50%; background: #2563eb; box-shadow: 0 0 0 6px #2563eb33; animation: gps-pulse 2s infinite; }
+@keyframes gps-pulse { 50% { box-shadow: 0 0 0 12px #2563eb11; } }
+@media (prefers-reduced-motion: reduce) { .user-location-dot { animation: none; } }
+
+/* Shared journal controls and drawers. */
+.journal-app { position: relative; }
+.journal-controls button, .journal-controls select, .journal-controls a, .journal-sheet button, .journal-sheet select, .journal-sheet a, .journal-sheet input, .journal-sheet textarea { min-height:44px; min-width:44px; border-radius:12px; border:1px solid color-mix(in srgb, var(--text-secondary) 30%, transparent); padding:8px 12px; background:var(--bg); color:var(--text-primary); }
+.journal-controls a, .journal-sheet a { display:inline-flex; align-items:center; }
+.journal-controls button, .journal-controls select { white-space:nowrap; font-size:12px; }
+.journal-sheet label { display:block; font-size:13px; }
+.journal-sheet label input:not([type=checkbox]), .journal-sheet label textarea, .journal-sheet label select { display:block; width:100%; }
+.journal-sheet button[aria-pressed=true], .journal-controls button[aria-pressed=true], .journal-controls a[aria-current=page] { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 20%, var(--bg)); }
+.journal-sheet .journal-primary { background:var(--accent); color:var(--bg); font-weight:700; }
+.journal-app :focus-visible { outline:3px solid #3b82f6; outline-offset:2px; }
+.journal-app button:disabled { opacity:.45; cursor:not-allowed; }
+.journal-sheet { padding-bottom:max(20px,env(safe-area-inset-bottom)); }
+.venue-marker-wishlist { background:#e0e7ff; color:#3730a3; border:2px solid #6366f1; }
+.venue-marker-saved { background:#b77b32; color:#fff; font-size:11px; }
+.venue-marker-poi { background:#fff7ed; border-color:#baaa94; font-size:18px; transform:scale(.8); }
+.venue-marker-poi.venue-marker-active { transform:scale(1.1); }
+.journal-app .journal-sheet { max-height:min(70dvh,100%); }

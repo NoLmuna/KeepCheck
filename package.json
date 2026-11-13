@@ -6,7 +6,9 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:map": "node --test map-regression.test.cjs",
+    "test:journal": "node --test journal-regression.test.cjs"
   },
   "dependencies": {
     "@serwist/next": "^9.5.11",
@@ -31,6 +33,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "fake-indexeddb": "^6.2.8",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

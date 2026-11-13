@@ -105,6 +105,7 @@ export default function LocationPickerMap({
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
+    let active = true;
     // Default starting center (if no initial coords, start at Manila center or 14.5995, 120.9842)
     const defaultLat = initialLat ?? 14.5995;
     const defaultLng = initialLng ?? 120.9842;
@@ -129,12 +130,14 @@ export default function LocationPickerMap({
         setLocating(true);
         navigator.geolocation.getCurrentPosition(
           (pos) => {
+            if (!active) return;
             setLocating(false);
             const { latitude, longitude } = pos.coords;
             map.setView([latitude, longitude], 15);
             setPin(latitude, longitude);
           },
           () => {
+            if (!active) return;
             setLocating(false);
           },
           { enableHighAccuracy: false, timeout: 4000 }
@@ -148,6 +151,9 @@ export default function LocationPickerMap({
     });
 
     return () => {
+      active = false;
+      map.off();
+      markerRef.current?.off();
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
@@ -161,6 +167,7 @@ export default function LocationPickerMap({
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (!mapRef.current) return;
         setLocating(false);
         const { latitude, longitude } = pos.coords;
         if (mapRef.current) {
@@ -168,7 +175,8 @@ export default function LocationPickerMap({
         }
         setPin(latitude, longitude);
       },
-      (err) => {
+      () => {
+        if (!mapRef.current) return;
         setLocating(false);
         alert("Could not access your location. Please tap directly on the map to set a pin.");
       },
@@ -188,6 +196,7 @@ export default function LocationPickerMap({
         disabled={locating}
         className="absolute top-3 right-3 z-[400] neu-button bg-bg/90 backdrop-blur-md p-2.5 rounded-xl text-text-primary shadow-neu-subtle hover:text-accent flex items-center gap-2 text-xs font-semibold cursor-pointer active:scale-95 transition-all"
         title="Locate me"
+        aria-label="Locate me"
       >
         <Locate className={`h-4 w-4 text-accent ${locating ? "animate-spin" : ""}`} />
         <span className="hidden sm:inline">{locating ? "Locating…" : "My Location"}</span>

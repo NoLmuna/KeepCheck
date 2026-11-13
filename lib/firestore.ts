@@ -1,7 +1,7 @@
 import {
   collection,
   doc,
-  setDoc,
+  runTransaction,
   deleteDoc,
   getDocs,
   query,
@@ -35,17 +35,21 @@ export async function writeSpotToFirestore(
   uid: string,
   firebaseId: string,
   spot: Omit<FoodSpotLog, "id" | "firebaseId" | "userId">,
-): Promise<void> {
+): Promise<FoodSpotLog | undefined> {
   const docRef = doc(getFirebaseFirestore(), "users", uid, "spots", firebaseId);
   
   // Clean undefined properties to prevent Firestore error
   const cleanedSpot = Object.fromEntries(
-    Object.entries(spot).filter(([_, v]) => v !== undefined)
+    Object.entries(spot).filter(([, v]) => v !== undefined)
   );
 
-  await setDoc(docRef, {
-    ...cleanedSpot,
-    userId: uid,
+  return runTransaction(getFirebaseFirestore(), async transaction => {
+    const remote = await transaction.get(docRef);
+    const data = remote.data();
+    if (data && (data.updatedAt ?? data.createdAt ?? 0) > (spot.updatedAt ?? spot.createdAt)) {
+      return { ...data, firebaseId, userId: uid } as FoodSpotLog;
+    }
+    transaction.set(docRef, { ...cleanedSpot, userId: uid, pendingSync: false, syncStatus: "synced" });
   });
 }
 

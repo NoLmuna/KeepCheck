@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
+import type { SpotLocation } from "@/app/db";
+import { reverseLocation } from "@/lib/osm";
 import { X, MapPin, Check } from "lucide-react";
 
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
@@ -17,7 +19,7 @@ const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
 interface LocationPickerModalProps {
   initialLat?: number;
   initialLng?: number;
-  onConfirm: (coords: { latitude: number; longitude: number }) => void;
+  onConfirm: (coords: { latitude: number; longitude: number; location?: SpotLocation }) => void;
   onClose: () => void;
 }
 
@@ -35,6 +37,19 @@ export default function LocationPickerModal({
       ? { latitude: initialLat, longitude: initialLng }
       : null
   );
+
+  const [resolved, setResolved] = useState<SpotLocation | null>(null);
+  useEffect(() => {
+    setResolved(null);
+    if (!selectedCoords) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void reverseLocation({ lat: selectedCoords.latitude, lng: selectedCoords.longitude }, controller.signal).then(location => {
+        if (!controller.signal.aborted) setResolved(location);
+      });
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [selectedCoords]);
 
   return (
     <div
@@ -89,7 +104,7 @@ export default function LocationPickerModal({
         <div className="pt-4 mt-2 border-t border-text-secondary/10 flex items-center justify-between gap-3">
           <div className="text-xs font-mono text-text-secondary truncate hidden sm:block">
             {selectedCoords
-              ? `📍 ${selectedCoords.latitude.toFixed(5)}, ${selectedCoords.longitude.toFixed(5)}`
+              ? resolved?.formattedAddress || `📍 ${selectedCoords.latitude.toFixed(5)}, ${selectedCoords.longitude.toFixed(5)}`
               : "No pin selected"}
           </div>
 
@@ -106,7 +121,7 @@ export default function LocationPickerModal({
               disabled={!selectedCoords}
               onClick={() => {
                 if (selectedCoords) {
-                  onConfirm(selectedCoords);
+                  onConfirm({ ...selectedCoords, ...(resolved ? { location: resolved } : {}) });
                   onClose();
                 }
               }}

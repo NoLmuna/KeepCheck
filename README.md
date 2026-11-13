@@ -112,3 +112,21 @@ Open [http://localhost:3000](http://localhost:3000).
 ## License
 
 MIT
+
+## Venue discovery map
+
+Open `/map` to search by venue name, tap nearby food venues (zoom 15+), or drop a pin. GPS enables proximity sorting and route previews. Guests can save and edit locally without signing in. Venue addresses and OSM identifiers are stored in IndexedDB; older coordinate-only records migrate without changing IDs, photos, categories, or 1–10 ratings.
+
+Photon powers search, Nominatim resolves manual pins, and Overpass supplies nearby venues (including `shop=bakery`). Driving previews use the OSRM demo; walking previews use FOSSGIS's separately prepared public OSRM pedestrian graph at `routing.openstreetmap.de/routed-foot`. Changing the profile token on a driving graph does not produce a pedestrian route. All requests have cancellation, timeouts, and offline/error fallbacks. Reverse lookup and route requests are rate-limited; viewport discovery is debounced and cached in memory.
+
+Saved places, editing, coordinate pinning, straight-line distances, and previously cached map tiles work offline after loading the PWA online. New search results, new tiles, discovery, and route calculation require connectivity. Guest records remain local; account-owned records synchronize in the background with timestamp-based conflict resolution and deletion tombstones.
+
+Validation:
+
+```sh
+npm run test:map
+npx tsc --noEmit
+npm run build
+```
+
+The map regression suite covers the v6-to-v7 migration, location metadata round trips, offline/non-200 fallbacks, POI deduplication/cache, routing endpoint selection, and sync races. Browser checks should also cover GPS denial, search/POI selection, route dismissal, guest edits, and offline reloads against a production build (`npm run start`); service workers are disabled in development.

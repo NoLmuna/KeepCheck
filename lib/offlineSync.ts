@@ -23,7 +23,9 @@ import {
   deleteSpotFromFirestore,
   addImageToFirestore,
   deleteImagesForSpotFromFirestore,
+  type FirestoreSpotChange,
 } from "./firestore";
+import { spotLocation } from "./geo";
 import { compressBlobToSafeBase64 } from "@/utils/image";
 
 /* ------------------------------------------------------------------ */
@@ -78,7 +80,7 @@ export async function syncSpotToFirestore(
   uid: string,
   spot: FoodSpotLog,
 ): Promise<boolean> {
-  if (!spot.firebaseId) return false;
+  if (!spot.firebaseId || spot.userId !== uid) return false;
 
   // Skip if we're clearly offline — saves error noise and CPU
   if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -87,7 +89,7 @@ export async function syncSpotToFirestore(
 
   try {
     // If there's a local image for this spot, sync it too
-    if (spot.id !== undefined) {
+    if (spot.id !== undefined && !spot.isDeleted) {
       const image = await db.images.where("spotId").equals(spot.id).first();
       // Sync if it exists and hasn't been uploaded to Firestore yet
       if (image && (!image.firebaseId || image.firebaseId === "uploaded")) {
@@ -112,7 +114,7 @@ export async function syncSpotToFirestore(
     }
 
     // Write the spot document
-    await writeSpotToFirestore(uid, spot.firebaseId, {
+    const newerRemote = await writeSpotToFirestore(uid, spot.firebaseId, {
       name: spot.name,
       category: spot.category,
       rating: spot.rating,
@@ -121,11 +123,28 @@ export async function syncSpotToFirestore(
       thumbnail: spot.thumbnail,
       latitude: spot.latitude,
       longitude: spot.longitude,
+      location: spotLocation(spot),
+      venueCategory: spot.venueCategory,
+      updatedAt: spot.updatedAt ?? spot.createdAt,
+      isDeleted: spot.isDeleted ?? false,
     });
+
+    if (newerRemote) {
+      await applyRemoteSpotChanges(uid, [{ type: "modified", spot: { ...newerRemote, firebaseId: spot.firebaseId } }]);
+    }
+    if (spot.isDeleted && !newerRemote) {
+      await deleteImagesForSpotFromFirestore(uid, spot.firebaseId);
+      if (spot.id !== undefined) await db.images.where("spotId").equals(spot.id).delete();
+    }
 
     // Mark spot as synced
     if (spot.id !== undefined) {
-      await db.spots.update(spot.id, { pendingSync: false });
+      await db.transaction("rw", db.spots, async () => {
+        const current = await db.spots.get(spot.id!);
+        if (current && (current.updatedAt ?? current.createdAt) === (spot.updatedAt ?? spot.createdAt)) {
+          await db.spots.update(spot.id!, { pendingSync: false, syncStatus: "synced" });
+        }
+      });
     }
 
     console.log(`[OfflineSync] ✓ Synced spot "${spot.name}" (${spot.firebaseId})`);
@@ -158,19 +177,13 @@ export async function sweepPendingSync(uid: string): Promise<number> {
   let synced = 0;
 
   try {
-    // 1. Sync pending spots
-    const pendingSpots = await db.spots
-      .where("pendingSync")
-      .equals(1) // Dexie stores booleans as 0/1 in indexes
-      .toArray();
-
-    // Also check for `true` value (non-indexed fallback)
+    // Dexie cannot index booleans; filter the current user's indexed collection.
     const allUserSpots = await db.spots.where("userId").equals(uid).toArray();
     const pending = allUserSpots.filter((s) => s.pendingSync === true);
 
     // Merge & dedupe
     const spotsToSync = new Map<number, FoodSpotLog>();
-    for (const s of [...pendingSpots, ...pending]) {
+    for (const s of pending) {
       if (s.id !== undefined) spotsToSync.set(s.id, s);
     }
 
@@ -241,9 +254,6 @@ export function startOnlineListener(
     console.log("[OfflineSync] 🌐 Back online — sweeping pending syncs…");
     onStatusChange?.(true);
 
-    // Small delay to let network stabilize
-    await new Promise((r) => setTimeout(r, 1500));
-
     const synced = await sweepPendingSync(uid);
     onSyncComplete?.(synced);
   };
@@ -272,4 +282,30 @@ export function startOnlineListener(
   };
 
   return _cleanupFn;
+}
+
+/** Merge remote records transactionally, protecting pending local edits and tombstones. */
+export async function applyRemoteSpotChanges(uid: string, changes: FirestoreSpotChange[]): Promise<void> {
+  const deletes = getPendingDeletes();
+  await db.transaction("rw", db.spots, db.images, async () => {
+    for (const { type, spot } of changes) {
+      if (deletes.some(d => d.uid === uid && d.firebaseId === spot.firebaseId)) continue;
+      const existing = await db.spots.where("firebaseId").equals(spot.firebaseId).first();
+      if (existing?.userId && existing.userId !== uid) continue;
+      if (existing && (existing.updatedAt ?? existing.createdAt) > (spot.updatedAt ?? spot.createdAt)) continue;
+      if (existing?.pendingSync && (existing.updatedAt ?? existing.createdAt) === (spot.updatedAt ?? spot.createdAt)) continue;
+      if (type === "removed") {
+        if (existing?.id !== undefined && !existing.pendingSync) {
+          await db.images.where("spotId").equals(existing.id).delete();
+          await db.spots.delete(existing.id);
+        }
+      } else {
+        const merged: FoodSpotLog = { ...spot, userId: uid, location: spotLocation(spot), updatedAt: spot.updatedAt ?? spot.createdAt, pendingSync: false, syncStatus: "synced" };
+        // Never accept a remote device's numeric IndexedDB primary key.
+        delete merged.id;
+        if (existing?.id !== undefined) merged.id = existing.id;
+        await db.spots.put(merged);
+      }
+    }
+  });
 }

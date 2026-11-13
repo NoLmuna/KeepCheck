@@ -84,7 +84,7 @@ self.addEventListener("activate", (event) => {
           .filter((name) => {
             // Keep the current precache and any Serwist runtime caches.
             // Delete everything else (old precache buckets, orphaned caches).
-            return name !== currentPrecacheName && !name.startsWith("serwist");
+            return name !== currentPrecacheName && !name.startsWith("serwist") && !["openstreetmap-tiles", "google-user-avatars"].includes(name);
           })
           .map((staleCache) => {
             console.log(`[SW] Deleting stale cache: ${staleCache}`);

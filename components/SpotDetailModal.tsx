@@ -6,7 +6,7 @@ import { db } from "@/app/db";
 import { makeThumbnailFromBlob } from "@/utils/image";
 import { X, ImageOff, RefreshCw } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { writeSpotToFirestore } from "@/lib/firestore";
+import { syncSpotToFirestore } from "@/lib/offlineSync";
 import { useToast } from "@/lib/toast";
 
 /* ------------------------------------------------------------------ */
@@ -80,25 +80,9 @@ export default function SpotDetailModal({
       if (!spot) throw new Error("Spot not found locally");
 
       const newThumb = await makeThumbnailFromBlob(image.blob);
-      await db.spots.update(spotId, { thumbnail: newThumb, pendingSync: true });
+      await db.spots.update(spotId, { thumbnail: newThumb, pendingSync: true, syncStatus: "pending", updatedAt: Date.now() });
 
-      if (user && spot.firebaseId) {
-        try {
-          await writeSpotToFirestore(user.uid, spot.firebaseId, {
-            name: spot.name,
-            category: spot.category,
-            rating: spot.rating,
-            comment: spot.comment,
-            createdAt: spot.createdAt,
-            thumbnail: newThumb,
-            latitude: spot.latitude,
-            longitude: spot.longitude,
-          });
-          await db.spots.update(spotId, { pendingSync: false });
-        } catch (fireErr) {
-          console.warn("[KeepCheck] Firestore thumbnail sync failed, will retry on sweep:", fireErr);
-        }
-      }
+      if (user) void db.spots.get(spotId).then(current => current && syncSpotToFirestore(user.uid, current)).catch(console.error);
 
       setRegenerated(true);
       showToast("✓ Thumbnail updated successfully!", "success");

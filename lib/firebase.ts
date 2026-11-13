@@ -84,3 +84,5 @@ export function getFirebaseFirestore(): Firestore {
 }
 
 
+
+export { getApp_ as getFirebaseApp };
