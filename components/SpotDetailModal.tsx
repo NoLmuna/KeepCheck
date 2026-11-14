@@ -128,8 +128,7 @@ export default function SpotDetailModal({
         ) : objectUrl ? (
           <div className="flex flex-col items-center gap-4">
             <div className="neu-raised overflow-hidden p-2 rounded-3xl">
-              <img
-                src={objectUrl}
+              <img loading="lazy" decoding="async"                 src={objectUrl}
                 alt="Full-resolution spot photo"
                 className="max-h-[80dvh] max-w-full rounded-2xl object-contain"
               />

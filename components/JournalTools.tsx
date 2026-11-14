@@ -76,7 +76,10 @@ export default function JournalTools({
     <div
       className="absolute inset-0 z-[900] flex items-end justify-center bg-black/40 sm:items-center"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
       }}
     >
       <section
@@ -208,7 +211,10 @@ export default function JournalTools({
                               .filter((s) => s.collectionIds.includes(c.id))
                               .map(
                                 (s) =>
-                                  `${s.name} · ${s.overallRating ? `★ ${s.overallRating.toFixed(1)}` : "Wishlist"} · ${s.location.locality ?? s.location.formattedAddress} · ${s.vibeTags.map(v=>v.replaceAll("-"," ")).join(", ")} · ${s.menuItems.filter(m=>m.verdict==="must-order").map(m=>"Must order: "+m.name).join(", ")}`,
+                                  `${s.name} · ${s.overallRating ? `★ ${s.overallRating.toFixed(1)}` : "Wishlist"} · ${s.location.locality ?? s.location.formattedAddress} · ${s.vibeTags.map((v) => v.replaceAll("-", " ")).join(", ")} · ${s.menuItems
+                                    .filter((m) => m.verdict === "must-order")
+                                    .map((m) => "Must order: " + m.name)
+                                    .join(", ")}`,
                               ),
                           ]),
                         );
@@ -335,9 +341,12 @@ export default function JournalTools({
                               name,
                             )
                             .filter((r) => !r.userId)
-                            .modify(record => {
+                            .modify((record) => {
                               record.userId = uid;
-                              record.updatedAt = Math.max(now, record.updatedAt + 1);
+                              record.updatedAt = Math.max(
+                                now,
+                                record.updatedAt + 1,
+                              );
                               record.syncStatus = "pending";
                             });
                         await db.photoQueue

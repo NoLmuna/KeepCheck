@@ -305,3 +305,17 @@ test("Firestore transaction preserves newer remote edits and writes metadata ato
   assert.equal(written.updatedAt, 50);
   assert.equal(written.syncStatus, "synced");
 });
+
+
+test("dense viewport POIs are nearest-first, deduplicated and capped; GPS commits are bounded", () => {
+ const {nearestPois,shouldCommitPosition,discoveryBounds}=load('lib/mapPerformance.ts');
+ const center={lat:14.6,lng:121};
+ const venues=Array.from({length:300},(_,i)=>({key:String(i),name:'Cafe '+i,category:'coffee',location:{lat:14.6+i*.00001,lng:121,osmId:'node/'+i,formattedAddress:''}})).reverse();
+ const result=nearestPois([...venues,venues[0]],center,new Set(['node/0']));
+ assert.equal(result.length,40);assert.equal(result[0].key,'1');assert.equal(result[39].key,'40');
+ assert.equal(shouldCommitPosition(center,{lat:14.600001,lng:121},100),false);
+ assert.equal(shouldCommitPosition(center,center,2000),true);
+ assert.equal(shouldCommitPosition(center,{lat:14.601,lng:121},100),true);
+ const bounds=discoveryBounds({south:10,north:20,west:110,east:130},center);
+ assert.ok(bounds.north-bounds.south < .037);assert.ok(bounds.east-bounds.west < .04);
+});

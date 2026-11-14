@@ -87,7 +87,7 @@
 
 body {
   background: var(--bg);
-  background-image: 
+  background-image:
     radial-gradient(at 0% 0%, rgba(212, 163, 115, 0.12) 0px, transparent 50%),
     radial-gradient(at 100% 0%, rgba(163, 177, 138, 0.15) 0px, transparent 50%),
     radial-gradient(at 50% 100%, rgba(244, 197, 66, 0.08) 0px, transparent 50%);
@@ -302,8 +302,8 @@ body {
 
 /* Backdrop fade */
 @keyframes backdrop-fade {
-  0% { opacity: 0; backdrop-filter: blur(0); }
-  100% { opacity: 1; backdrop-filter: blur(8px); }
+  0% { opacity: 0;  }
+  100% { opacity: 1;  }
 }
 
 .animate-backdrop {
@@ -563,7 +563,7 @@ body {
 .offline-banner {
   background: linear-gradient(135deg, #4E342E, #7D6558);
   color: #F8F1E7;
-  backdrop-filter: blur(12px);
+
   box-shadow: 0 4px 20px rgba(78, 52, 46, 0.35), 0 1px 3px rgba(0, 0, 0, 0.2);
   animation: offline-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
   letter-spacing: 0.02em;
@@ -752,36 +752,69 @@ body {
 
 
 
-/* Venue-first map controls stay thumb-sized and keyboard-visible. */
-.venue-map button, .venue-map input, .venue-map select, .venue-map a { min-height: 44px; }
-.venue-map button, .venue-map select, .venue-map a { min-width: 44px; }
-.venue-map :focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
-.venue-map .leaflet-control-zoom a { width: 44px; height: 44px; line-height: 44px; }
-.venue-map .leaflet-control-attribution a { min-height: 0; min-width: 0; }
-.venue-marker { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; background: #fff7ed; border: 2px solid #a16207; color: #422006; font-size: 21px; box-shadow: 0 2px 8px #0003; }
-.venue-marker-saved { background: #5b4636; border-color: white; color: white; font-size: 15px; font-weight: 700; }
-.venue-marker-active { outline: 4px solid #2563eb; transform: scale(1.15); }
-.user-location-dot { border: 3px solid white; border-radius: 50%; background: #2563eb; box-shadow: 0 0 0 6px #2563eb33; animation: gps-pulse 2s infinite; }
-@keyframes gps-pulse { 50% { box-shadow: 0 0 0 12px #2563eb11; } }
-@media (prefers-reduced-motion: reduce) { .user-location-dot { animation: none; } }
-
-/* Shared journal controls and drawers. */
-.journal-app { position: relative; }
-.journal-controls button, .journal-controls select, .journal-controls a, .journal-sheet button, .journal-sheet select, .journal-sheet a, .journal-sheet input, .journal-sheet textarea { min-height:44px; min-width:44px; border-radius:12px; border:1px solid color-mix(in srgb, var(--text-secondary) 30%, transparent); padding:8px 12px; background:var(--bg); color:var(--text-primary); }
-.journal-controls a, .journal-sheet a { display:inline-flex; align-items:center; }
-.journal-controls button, .journal-controls select { white-space:nowrap; font-size:12px; }
-.journal-sheet label { display:block; font-size:13px; }
-.journal-sheet label input:not([type=checkbox]), .journal-sheet label textarea, .journal-sheet label select { display:block; width:100%; }
-.journal-sheet button[aria-pressed=true], .journal-controls button[aria-pressed=true], .journal-controls a[aria-current=page] { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 20%, var(--bg)); }
-.journal-sheet .journal-primary { background:var(--accent); color:var(--bg); font-weight:700; }
-.journal-app :focus-visible { outline:3px solid #3b82f6; outline-offset:2px; }
-.journal-app button:disabled { opacity:.45; cursor:not-allowed; }
+/* Map surfaces stay opaque while tiles move underneath. */
+.venue-map button,.venue-map input,.venue-map select,.venue-map a { min-height:44px; }
+.venue-map button,.venue-map select,.venue-map a { min-width:44px; }
+.venue-map .leaflet-control-attribution a { min-height:0;min-width:0; }
+.venue-marker { display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:#fff7ed;border:1px solid #baaa94;color:#422006;font-size:18px; }
+.venue-marker-saved { background:#b77b32;color:white;font-size:11px;font-weight:700; }
+.venue-marker-wishlist { background:#e0e7ff;color:#3730a3;border-color:#6366f1; }
+.venue-marker-active { outline:3px solid #2563eb;outline-offset:2px; }
+.user-location-dot { border:3px solid white;border-radius:50%;background:#2563eb; }
+.user-location-dot::after { content:'';position:absolute;inset:-8px;border-radius:50%;background:#2563eb33;animation:gps-pulse 2s infinite;pointer-events:none; }
+@keyframes gps-pulse { from { transform:scale(.7);opacity:.8; } to { transform:scale(1.4);opacity:0; } }
+.journal-app { position:relative; }
+.journal-controls button,.journal-controls select,.journal-controls a,.journal-sheet button,.journal-sheet select,.journal-sheet a,.journal-sheet input,.journal-sheet textarea { min-height:44px;min-width:44px;border-radius:10px;border:1px solid color-mix(in srgb,var(--text-secondary) 30%,transparent);padding:8px 10px;background:var(--bg);color:var(--text-primary); }
+.journal-controls a,.journal-sheet a { display:inline-flex;align-items:center; }
+.journal-controls button,.journal-controls select { font-size:12px; }
+.journal-sheet label { display:block;font-size:13px; }
+.journal-sheet label input:not([type=checkbox]),.journal-sheet label textarea,.journal-sheet label select { display:block;width:100%; }
+.journal-sheet button[aria-pressed=true],.journal-controls button[aria-pressed=true],.journal-controls a[aria-current=page],.search-results [aria-selected=true] { border-color:var(--accent);background:color-mix(in srgb,var(--accent) 20%,var(--bg)); }
+.journal-sheet .journal-primary { background:var(--accent);color:var(--bg);font-weight:700; }
+.journal-app :focus-visible { outline:3px solid #3b82f6;outline-offset:2px; }
+.journal-app button:disabled { opacity:.45;cursor:not-allowed; }
 .journal-sheet { padding-bottom:max(20px,env(safe-area-inset-bottom)); }
-.venue-marker-wishlist { background:#e0e7ff; color:#3730a3; border:2px solid #6366f1; }
-.venue-marker-saved { background:#b77b32; color:#fff; font-size:11px; }
-.venue-marker-poi { background:#fff7ed; border-color:#baaa94; font-size:18px; transform:scale(.8); }
-.venue-marker-poi.venue-marker-active { transform:scale(1.1); }
-.journal-app .journal-sheet { max-height:min(70dvh,100%); }
-.journal-controls select { flex-shrink:0; width:auto; }
-.venue-marker-wrapper { background:transparent; }
-.venue-marker-poi { transform:none; background:radial-gradient(circle,#fff7ed 60%,transparent 62%); border:none; box-shadow:none; }
+.spot-card { display:block;width:100%;min-height:88px;border:1px solid color-mix(in srgb,var(--text-secondary) 20%,transparent);border-radius:12px;padding:12px;text-align:left;background:var(--bg); }
+.spot-card-active { outline:2px solid var(--accent); }
+.map-panel { position:absolute;z-index:500;inset:12px 12px auto;pointer-events:none; }
+.map-panel-header,.map-saved-list,.venue-detail { pointer-events:auto;background:var(--bg);border:1px solid color-mix(in srgb,var(--text-secondary) 20%,transparent);border-radius:14px;box-shadow:0 2px 6px #0001; }
+.map-panel-header { padding:8px;position:relative; }
+.filter-root { position:relative; }
+.filter-popover { position:absolute;right:0;top:calc(100% + 6px);z-index:800;width:min(340px,calc(100vw - 40px));max-height:60dvh;overflow:auto;padding:12px;border:1px solid #8885;border-radius:12px;background:var(--bg);box-shadow:0 2px 6px #0002; }
+.filter-popover select { min-width:0;width:100%; }
+.map-search { position:relative; }
+.search-results { position:absolute;top:calc(100% + 4px);left:8px;right:8px;z-index:700;max-height:40dvh;overflow:auto;border:1px solid #8885;border-radius:12px;background:var(--bg); }
+.map-saved-list { margin-top:8px;max-height:170px;overflow:auto; }
+.map-cards { display:flex;gap:8px;padding:0 8px 8px; }
+.map-cards .spot-card { flex:0 0 220px; }
+.map-corner { position:absolute;right:12px;bottom:28px;z-index:650;display:flex;flex-direction:column;gap:4px; }
+.map-corner>button { width:44px;height:44px;padding:0;box-shadow:0 1px 4px #0002; }
+.status-dot { display:inline-block;width:10px;height:10px;border-radius:50%;background:#a16207; }
+.status-dot.online { background:#16864b; }
+.map-status { position:absolute;right:52px;bottom:0;width:230px;padding:12px;border:1px solid #8885;border-radius:12px;background:var(--bg);font-size:12px; }
+.venue-detail { position:absolute;z-index:600;bottom:0;left:0;right:0;height:72dvh;max-height:100%;padding:12px 16px;overflow:hidden;transform:translateY(calc(100% - 170px));transition:transform 200ms cubic-bezier(0.16,1,0.3,1); }
+.venue-detail[data-expanded=true] { transform:translateY(0); }
+.venue-detail-body { height:calc(100% - 140px);overflow:auto;overscroll-behavior:contain; }
+.venue-detail[data-expanded=false] .venue-detail-body { visibility:hidden; }
+.sheet-toggle { display:block;width:100%;margin-bottom:8px; }
+@media(max-width:767px) {
+ .map-panel:has(.venue-detail) { inset:0; }
+ .map-panel:has(.venue-detail) .map-panel-header { margin:12px; }
+ .map-panel:has(.venue-detail[data-expanded=true]) .map-panel-header { visibility:hidden; }
+ .venue-detail[data-expanded=true] { padding-right:64px; }
+}
+@media(min-width:768px) {
+ .map-panel { top:16px;left:16px;right:auto;bottom:16px;width:380px;max-height:calc(100dvh - 32px);display:flex;flex-direction:column;border:1px solid #8885;border-radius:14px;background:var(--bg);box-shadow:0 2px 6px #0001;pointer-events:auto; }
+ .map-panel-header { flex-shrink:0;border:0;box-shadow:none; }
+ .map-saved-list { margin-top:0;position:static;max-height:none;min-height:0;flex:1;overflow:auto;border:0;box-shadow:none; }
+ .map-cards { display:grid; }
+ .map-cards .spot-card { width:100%; }
+ .venue-detail { top:16px;left:16px;right:auto;bottom:16px;width:380px;height:auto;max-height:calc(100% - 32px);transform:none;transition:none;display:flex;flex-direction:column; }
+ .venue-detail[data-embedded=true] { position:static;min-height:0;flex:1;width:100%;max-height:none;border:0;box-shadow:none; }
+ .venue-detail-body,.venue-detail[data-expanded=false] .venue-detail-body { visibility:visible;height:auto;min-height:0;flex:1;overflow:auto; }
+ .sheet-toggle { display:none; }
+}
+@media(min-width:1024px) { .map-panel,.venue-detail:not([data-embedded=true]) { width:400px; } }
+@media(prefers-reduced-motion:reduce) { .user-location-dot::after { animation:none; } .venue-detail { transition:none; } }
+
+.journal-app>div>.flex>.filter-root .filter-popover { left:0;right:auto; }

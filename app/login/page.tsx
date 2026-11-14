@@ -36,7 +36,7 @@ function QuickLoginRow({
       className="neu-raised group flex w-full items-center gap-3 rounded-2xl p-3 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] active:shadow-neu-inset cursor-pointer"
     >
       {account.photoURL ? (
-        <img
+        <img loading="lazy" decoding="async"
           src={account.photoURL}
           alt=""
           className="h-10 w-10 rounded-full object-cover ring-2 ring-accent/30"
@@ -138,7 +138,7 @@ export default function LoginPage() {
         {/* Logo + title */}
         <div className="mb-8 text-center">
           <div className="neu-raised mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl">
-            <img
+            <img loading="lazy" decoding="async"
               src="/KeepCheck-Logo.png"
               alt="KeepCheck"
               className="h-14 w-14 object-contain"

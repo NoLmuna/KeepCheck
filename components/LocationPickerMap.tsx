@@ -185,7 +185,7 @@ export default function LocationPickerMap({
   };
 
   return (
-    <div className="relative w-full h-full min-h-[350px] sm:min-h-[420px] rounded-2xl overflow-hidden border border-text-secondary/15 shadow-neu-inset">
+    <div className="relative w-full h-full min-h-[350px] sm:min-h-[420px] rounded-2xl overflow-hidden border border-text-secondary/15 shadow-sm">
       {/* Map Element */}
       <div ref={mapContainerRef} className="w-full h-full min-h-[350px] sm:min-h-[420px]" />
 
@@ -194,7 +194,7 @@ export default function LocationPickerMap({
         type="button"
         onClick={handleLocateUser}
         disabled={locating}
-        className="absolute top-3 right-3 z-[400] neu-button bg-bg/90 backdrop-blur-md p-2.5 rounded-xl text-text-primary shadow-neu-subtle hover:text-accent flex items-center gap-2 text-xs font-semibold cursor-pointer active:scale-95 transition-all"
+        className="absolute top-3 right-3 z-[400] neu-button bg-bg/90  p-2.5 rounded-xl text-text-primary shadow-sm hover:text-accent flex items-center gap-2 text-xs font-semibold cursor-pointer active:scale-95 transition-colors"
         title="Locate me"
         aria-label="Locate me"
       >
@@ -203,7 +203,7 @@ export default function LocationPickerMap({
       </button>
 
       {/* Pin Status Banner */}
-      <div className="absolute bottom-3 left-3 right-3 z-[400] bg-bg/95 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-text-secondary/15 shadow-neu-raised flex items-center justify-between text-xs">
+      <div className="absolute bottom-3 left-3 right-3 z-[400] bg-bg/95  px-3.5 py-2.5 rounded-xl border border-text-secondary/15 shadow-sm flex items-center justify-between text-xs">
         <div className="flex items-center gap-2 truncate">
           <Navigation className="h-4 w-4 text-accent shrink-0" />
           <span className="font-mono text-text-primary font-medium truncate">

@@ -60,12 +60,12 @@ export default function LocationPickerModal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md transition-opacity"
+        className="absolute inset-0 bg-black/70  transition-opacity"
         onClick={onClose}
       />
 
       {/* Modal Card */}
-      <div className="relative z-10 w-full max-w-2xl bg-bg rounded-3xl p-4 sm:p-6 border border-text-secondary/15 shadow-neu-raised flex flex-col max-h-[92dvh]">
+      <div className="relative z-10 w-full max-w-2xl bg-bg rounded-3xl p-4 sm:p-6 border border-text-secondary/15 shadow-sm flex flex-col max-h-[92dvh]">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 mb-3 border-b border-text-secondary/10">
           <div className="flex items-center gap-2.5">
@@ -125,7 +125,7 @@ export default function LocationPickerModal({
                   onClose();
                 }
               }}
-              className="neu-button rounded-xl px-5 py-2.5 text-xs sm:text-sm font-bold bg-gold text-[#4E342E] hover:bg-gold/90 disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial shadow-neu-button"
+              className="neu-button rounded-xl px-5 py-2.5 text-xs sm:text-sm font-bold bg-gold text-[#4E342E] hover:bg-gold/90 disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial shadow-sm"
             >
               <Check className="h-4 w-4" />
               <span>Confirm Location</span>

@@ -13,8 +13,6 @@ const withSerwist = withSerwistInit({
     { url: "/", revision },
     { url: "/offline", revision },
     { url: "/map", revision },
-    { url: "/?action=log", revision },
-    { url: "/map?status=wishlist", revision },
   ],
 });
 

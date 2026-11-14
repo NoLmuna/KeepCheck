@@ -9,8 +9,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     display: "standalone",
     shortcuts: [
-      { name: "Quick Log Spot", url: "/?action=log", description: "Log a new visit offline" },
-      { name: "Nearby Wishlist", url: "/map?status=wishlist", description: "Explore your nearby wishlist" },
+      { name: "Quick Log Spot", url: "/#action=log", description: "Log a new visit offline" },
+      { name: "Nearby Wishlist", url: "/map#status=wishlist", description: "Explore your nearby wishlist" },
     ],
     background_color: "#F8F1E7",
     theme_color: "#4E342E",
