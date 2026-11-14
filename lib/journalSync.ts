@@ -14,10 +14,12 @@ import {
   uploadBytesResumable,
   getDownloadURL,
 } from "firebase/storage";
-import { db, type FoodSpotLog } from "@/app/db";
+import { db, type FoodSpotLog, type SpotImage } from "@/app/db";
 import { getFirebaseApp, getFirebaseFirestore } from "./firebase";
 import type { Spot, VisitLog, SpotCollection, SyncRecord } from "./models";
 import { migrateLegacyRecords } from "./legacyMigration";
+import { compressVisitPhoto } from "./journalMedia";
+import { haversine } from "./geo";
 
 type Kind = "venues" | "visitLogs" | "collections";
 type RecordData = Spot | VisitLog | SpotCollection;
@@ -52,23 +54,112 @@ async function importLegacyCloud(uid: string) {
     collection(getFirebaseFirestore(), "users", uid, "spots"),
   );
   const records = snapshot.docs.map(
-    (d) => ({ ...d.data(), firebaseId: d.id, userId: uid }) as FoodSpotLog,
+    (d, index) =>
+      ({
+        ...d.data(),
+        id: index + 1,
+        firebaseId: d.id,
+        userId: uid,
+      }) as FoodSpotLog,
   );
-  const converted = migrateLegacyRecords(records, []);
+  const imagesSnapshot = await getDocs(
+    collection(getFirebaseFirestore(), "users", uid, "images"),
+  );
+  const images: SpotImage[] = [];
+  for (const document of imagesSnapshot.docs) {
+    const image = document.data() as {
+      spotFirebaseId?: string;
+      base64?: string;
+      createdAt?: number;
+    };
+    const parent = records.find((r) => r.firebaseId === image.spotFirebaseId);
+    if (!parent?.id || !image.base64) continue;
+    const match = image.base64.match(
+      /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/,
+    );
+    if (!match) continue;
+    const blob = new Blob(
+      [Uint8Array.from(atob(match[2]), (c) => c.charCodeAt(0))],
+      { type: match[1] },
+    );
+    images.push({
+      id: images.length + 1,
+      spotId: parent.id,
+      firebaseId: document.id,
+      blob,
+      createdAt: image.createdAt ?? parent.createdAt,
+    });
+  }
+  const converted = migrateLegacyRecords(records, images);
   await db.transaction(
     "rw",
     db.venues,
     db.visitLogs,
+    db.photoQueue,
     db.syncState,
     async () => {
-      for (const spot of converted.spots)
-        if (!(await db.venues.get(spot.id))) await db.venues.add(spot);
-      for (const visit of converted.visits)
-        if (!(await db.visitLogs.get(visit.id))) await db.visitLogs.add(visit);
+      const existingSpots = await db.venues
+        .where("userId")
+        .equals(uid)
+        .toArray();
+      const mapping = new Map<string, string>();
+      for (const spot of converted.spots) {
+        const existing = existingSpots.find(
+          (s) =>
+            s.id === spot.id ||
+            (!s.isDeleted &&
+              !spot.isDeleted &&
+              !s.locationMissing &&
+              !spot.locationMissing &&
+              ((s.location.osmId && s.location.osmId === spot.location.osmId) ||
+                (s.name.toLowerCase() === spot.name.toLowerCase() &&
+                  haversine(s.location, spot.location) < 50))),
+        );
+        mapping.set(spot.id, existing?.id ?? spot.id);
+        if (!existing) await db.venues.add(spot);
+      }
+      for (const visit of converted.visits) {
+        const existing = await db.visitLogs.get(visit.id);
+        const spotId = mapping.get(visit.spotId) ?? visit.spotId;
+        if (!existing) await db.visitLogs.add({ ...visit, spotId });
+        else if (!existing.localPhotoIds.length && visit.localPhotoIds.length)
+          await db.visitLogs.update(existing.id, {
+            localPhotoIds: visit.localPhotoIds,
+            updatedAt: Math.max(Date.now(), existing.updatedAt + 1),
+            syncStatus: "pending",
+          });
+      }
+      for (const photo of converted.photos) {
+        const parent = await db.visitLogs.get(photo.visitLogId);
+        if (
+          parent?.localPhotoIds.includes(photo.id) &&
+          !(await db.photoQueue.get(photo.id))
+        )
+          await db.photoQueue.add({ ...photo, spotId: parent.spotId });
+      }
+      for (const id of new Set(mapping.values())) {
+        const logs = await db.visitLogs
+          .where("spotId")
+          .equals(id)
+          .filter((v) => !v.isDeleted)
+          .toArray();
+        const venue = await db.venues.get(id);
+        if (!venue || venue.isDeleted) continue;
+        const firstPhoto = logs.flatMap((v) => v.localPhotoIds)[0];
+        await db.venues.update(id, {
+          overallRating: logs.length
+            ? logs.reduce((n, v) => n + v.rating, 0) / logs.length
+            : undefined,
+          localCoverPhotoId: venue.localCoverPhotoId ?? firstPhoto,
+          updatedAt: Math.max(Date.now(), venue.updatedAt + 1),
+          syncStatus: "pending",
+        });
+      }
       await db.syncState.put({ id: key, updatedAt: Date.now() });
     },
   );
 }
+
 function clean(record: RecordData): Record<string, unknown> {
   return JSON.parse(JSON.stringify(record)) as Record<string, unknown>;
 }
@@ -126,6 +217,8 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
       }
       if (signal.aborted) return;
       const url = await getDownloadURL(reference);
+      const thumbnail =
+        photo.thumbnail ?? (await compressVisitPhoto(photo.blob)).thumbnail;
       // Retain a small offline preview; release the full compressed blob only after parent URLs are durable locally.
       await db.transaction(
         "rw",
@@ -154,6 +247,7 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
             });
           await db.photoQueue.update(photo.id, {
             status: "uploaded",
+            thumbnail,
             remoteUrl: url,
             blob: undefined,
             error: undefined,
@@ -218,6 +312,7 @@ export async function subscribeJournal(
     unsubscribes.push(
       onSnapshot(
         q,
+        { includeMetadataChanges: true },
         (snapshot) => {
           const records = snapshot
             .docChanges()
@@ -230,7 +325,7 @@ export async function subscribeJournal(
             .then(async () => {
               if (signal.aborted) return;
               await mergeJournalRecords(kind, records, uid);
-              if (!snapshot.metadata.fromCache && records.length) {
+              if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites && records.length) {
                 const latest = Math.max(...records.map((r) => r.updatedAt));
                 const old = await db.syncState.get(`${uid}-${kind}`);
                 await db.syncState.put({

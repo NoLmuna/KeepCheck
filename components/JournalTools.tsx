@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { db } from "@/app/db";
 import type { Spot, VisitLog, SpotCollection } from "@/lib/models";
 import { makeBackup, restoreBackup, backupCsv } from "@/lib/journalBackup";
@@ -29,6 +29,34 @@ export default function JournalTools({
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [importData, setImportData] = useState<unknown>();
+  const dialog = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    const root = dialog.current;
+    root?.querySelector<HTMLButtonElement>("button")?.focus();
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !root) return;
+      const elements = [
+        ...root.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]",
+        ),
+      ].filter((el) => el.getClientRects().length);
+      const first = elements[0],
+        last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    root?.addEventListener("keydown", trap);
+    return () => {
+      root?.removeEventListener("keydown", trap);
+      if (previous instanceof HTMLElement) previous.focus();
+    };
+  }, []);
   const file = useRef<HTMLInputElement>(null);
   const stats = journalInsights(spots, visits);
   async function run(fn: () => Promise<void>) {
@@ -52,6 +80,7 @@ export default function JournalTools({
       }}
     >
       <section
+        ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-label="Journal tools"
@@ -179,7 +208,7 @@ export default function JournalTools({
                               .filter((s) => s.collectionIds.includes(c.id))
                               .map(
                                 (s) =>
-                                  `${s.name} · ${s.overallRating ? `★ ${s.overallRating.toFixed(1)}` : "Wishlist"} · ${s.location.locality ?? s.location.formattedAddress}`,
+                                  `${s.name} · ${s.overallRating ? `★ ${s.overallRating.toFixed(1)}` : "Wishlist"} · ${s.location.locality ?? s.location.formattedAddress} · ${s.vibeTags.map(v=>v.replaceAll("-"," ")).join(", ")} · ${s.menuItems.filter(m=>m.verdict==="must-order").map(m=>"Must order: "+m.name).join(", ")}`,
                               ),
                           ]),
                         );
@@ -306,10 +335,10 @@ export default function JournalTools({
                               name,
                             )
                             .filter((r) => !r.userId)
-                            .modify({
-                              userId: uid,
-                              updatedAt: now,
-                              syncStatus: "pending",
+                            .modify(record => {
+                              record.userId = uid;
+                              record.updatedAt = Math.max(now, record.updatedAt + 1);
+                              record.syncStatus = "pending";
                             });
                         await db.photoQueue
                           .filter((p) => !p.userId)

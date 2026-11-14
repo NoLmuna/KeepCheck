@@ -782,3 +782,6 @@ body {
 .venue-marker-poi { background:#fff7ed; border-color:#baaa94; font-size:18px; transform:scale(.8); }
 .venue-marker-poi.venue-marker-active { transform:scale(1.1); }
 .journal-app .journal-sheet { max-height:min(70dvh,100%); }
+.journal-controls select { flex-shrink:0; width:auto; }
+.venue-marker-wrapper { background:transparent; }
+.venue-marker-poi { transform:none; background:radial-gradient(circle,#fff7ed 60%,transparent 62%); border:none; box-shadow:none; }

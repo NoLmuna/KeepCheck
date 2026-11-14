@@ -4,7 +4,13 @@ import { migrateLegacyRecords } from "@/lib/legacyMigration";
 
 /** The two supported spot categories. */
 export type LegacySpotCategory = "Cafe" | "Restaurant";
-export type { SpotCategory, Spot, VisitLog, SpotCollection, QueuedPhoto } from "@/lib/models";
+export type {
+  SpotCategory,
+  Spot,
+  VisitLog,
+  SpotCollection,
+  QueuedPhoto,
+} from "@/lib/models";
 
 export interface SpotLocation {
   lat: number;

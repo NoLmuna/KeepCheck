@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -87,13 +87,18 @@ export default function JournalApp({ mode }: { mode: "list" | "map" }) {
       });
     }
   }, []);
+  const deepLinkHandled = useRef(false);
   useEffect(() => {
+    if (deepLinkHandled.current) return;
     const id = new URLSearchParams(window.location.search).get("spot");
     if (id && data) {
       const spot = data.spots.find((s) => s.id === id && !s.isDeleted);
       // Resolve an external venue deep link after IndexedDB loads.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (spot) setSelected(journalVenue(spot));
+      if (spot) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSelected(journalVenue(spot));
+        deepLinkHandled.current = true;
+      }
     }
   }, [data]);
   const save: SaveVenue = async (venue, draft, visit, duplicateId) => {
@@ -112,7 +117,7 @@ export default function JournalApp({ mode }: { mode: "list" | "map" }) {
   return (
     <main className="journal-app flex h-[100dvh] flex-col bg-bg text-text-primary">
       <header className="journal-controls flex shrink-0 flex-wrap items-center justify-between gap-1 px-3 py-2">
-        <Link
+        <Link prefetch={false}
           href="/"
           className="text-xl font-serif font-bold"
           aria-label="KeepCheck journal"
@@ -120,20 +125,25 @@ export default function JournalApp({ mode }: { mode: "list" | "map" }) {
           KeepCheck
         </Link>
         <nav className="flex gap-1">
-          <Link
+          <Link prefetch={false}
             aria-label="View journal"
             aria-current={mode === "list" ? "page" : undefined}
             href="/"
           >
             Journal
           </Link>
-          <Link
+          <Link prefetch={false}
             aria-label="View map"
             aria-current={mode === "map" ? "page" : undefined}
             href="/map"
           >
             Map
           </Link>
+          {!user && (
+            <Link prefetch={false} href="/login" aria-label="Sign in to sync">
+              Sign in
+            </Link>
+          )}
           <button
             aria-label="Open journal tools"
             onClick={() => setTools(true)}
@@ -196,7 +206,7 @@ export default function JournalApp({ mode }: { mode: "list" | "map" }) {
                 }
               />
               <div className="mb-3 flex gap-2 journal-controls">
-                <Link href="/map" aria-label="Discover venues">
+                <Link prefetch={false} href="/map" aria-label="Discover venues">
                   Discover venues →
                 </Link>
                 <button
@@ -253,7 +263,7 @@ export default function JournalApp({ mode }: { mode: "list" | "map" }) {
                         .map((v) => v.replaceAll("-", " "))
                         .join(" · ")}
                     </p>
-                    {s.localCoverPhotoId && (
+                    {(s.localCoverPhotoId || s.coverPhotoUrl) && (
                       <JournalPhoto
                         id={s.localCoverPhotoId}
                         url={s.coverPhotoUrl}

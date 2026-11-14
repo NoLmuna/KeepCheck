@@ -71,7 +71,11 @@ export default function SpotsMap({
       }),
     [spots],
   );
-  const initial = useRef(saved[0]?.location);
+  const initial = useRef(
+    externalSelection?.record?.locationMissing
+      ? saved[0]?.location
+      : (externalSelection?.location ?? saved[0]?.location),
+  );
   useEffect(() => {
     // Synchronize selections from the journal and randomizer with Leaflet.
     if (externalSelection) {

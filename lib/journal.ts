@@ -76,7 +76,7 @@ export async function saveJournalEntry(
         const duplicate = findDuplicate(await db.venues.toArray(), venue, uid);
         if (duplicate) throw new DuplicateVenueError(duplicate);
       }
-      const now = Date.now();
+      const now = Math.max(Date.now(), (existing?.updatedAt ?? 0) + 1);
       const spot: Spot = {
         ...existing,
         ...(duplicateId && existing ? {} : draft),
@@ -149,7 +149,8 @@ export async function saveJournalEntry(
 }
 export async function deleteVenue(id: string) {
   await db.transaction("rw", db.venues, db.visitLogs, async () => {
-    const now = Date.now();
+    const current = await db.venues.get(id);
+    const now = Math.max(Date.now(), (current?.updatedAt ?? 0) + 1);
     await db.venues.update(id, {
       isDeleted: true,
       updatedAt: now,
@@ -158,7 +159,11 @@ export async function deleteVenue(id: string) {
     await db.visitLogs
       .where("spotId")
       .equals(id)
-      .modify({ isDeleted: true, updatedAt: now, syncStatus: "pending" });
+      .modify(visit => {
+        visit.isDeleted = true;
+        visit.updatedAt = Math.max(now, visit.updatedAt + 1);
+        visit.syncStatus = "pending";
+      });
   });
 }
 export async function saveCollection(
@@ -168,7 +173,7 @@ export async function saveCollection(
   existing?: SpotCollection,
 ) {
   if (!name.trim()) throw new Error("Name is required");
-  const now = Date.now();
+  const now = Math.max(Date.now(), (existing?.updatedAt ?? 0) + 1);
   await db.collections.put({
     ...existing,
     id: existing?.id ?? crypto.randomUUID(),
@@ -182,7 +187,8 @@ export async function saveCollection(
 }
 export async function deleteCollection(id: string) {
   await db.transaction("rw", db.collections, db.venues, async () => {
-    const now = Date.now();
+    const current = await db.collections.get(id);
+    const now = Math.max(Date.now(), (current?.updatedAt ?? 0) + 1);
     await db.collections.update(id, {
       isDeleted: true,
       updatedAt: now,
@@ -192,7 +198,7 @@ export async function deleteCollection(id: string) {
       .filter((s) => s.collectionIds.includes(id))
       .modify((s) => {
         s.collectionIds = s.collectionIds.filter((c) => c !== id);
-        s.updatedAt = now;
+        s.updatedAt = Math.max(now, s.updatedAt + 1);
         s.syncStatus = "pending";
       });
   });

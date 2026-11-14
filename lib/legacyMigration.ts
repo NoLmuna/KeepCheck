@@ -8,7 +8,11 @@ export function migrateLegacyRecords(
   const spots: Spot[] = [],
     visits: VisitLog[] = [],
     photos: QueuedPhoto[] = [];
-  for (const old of records) {
+  // Stable ordering makes independently migrated devices choose the same canonical venue.
+  const ordered = [...records].sort((a, b) =>
+    String(a.firebaseId ?? a.id).localeCompare(String(b.firebaseId ?? b.id)),
+  );
+  for (const old of ordered) {
     const base = `legacy-${old.userId || "guest"}-${old.firebaseId || old.id}`;
     const location = spotLocation(old);
     let spot = spots.find(
@@ -64,7 +68,7 @@ export function migrateLegacyRecords(
       isDeleted: old.isDeleted ?? false,
     };
     for (const img of images.filter((i) => i.spotId === old.id)) {
-      const id = `photo-${base}-${img.id}`;
+      const id = `photo-${base}-${img.firebaseId && img.firebaseId !== "uploaded" ? img.firebaseId : img.id}`;
       photos.push({
         id,
         spotId: spot.id,

@@ -194,7 +194,7 @@ export default function VenueSheet(p: Props) {
           {spot.vibeTags.map((v) => v.replaceAll("-", " ")).join(" · ")}
         </p>
       )}
-      {spot?.localCoverPhotoId && (
+      {(spot?.localCoverPhotoId || spot?.coverPhotoUrl) && (
         <JournalPhoto
           id={spot.localCoverPhotoId}
           url={spot.coverPhotoUrl}

@@ -107,7 +107,7 @@ Open [http://localhost:3000](http://localhost:3000).
 1. When you log a spot, the data is written to IndexedDB immediately. If you are signed in and online, it also writes to Firestore in the background.
 2. If you are offline, spots are flagged as pending. When the app detects connectivity, it runs a sync sweep to push pending records to Firestore.
 3. Firestore snapshot listeners keep your local database in sync with cloud changes from other devices.
-4. Images are stored as blobs in IndexedDB and as compressed base64 strings in Firestore.
+4. New visit photos are compressed to WebP in IndexedDB and queued for Firebase Storage. After upload, a small local preview is retained. Legacy base64 images are migrated from Firestore on the first normalized sync.
 
 ## License
 
@@ -115,7 +115,7 @@ MIT
 
 ## Venue discovery map
 
-Open `/map` to search by venue name, tap nearby food venues (zoom 15+), or drop a pin. GPS enables proximity sorting and route previews. Guests can save and edit locally without signing in. Venue addresses and OSM identifiers are stored in IndexedDB; older coordinate-only records migrate without changing IDs, photos, categories, or 1–10 ratings.
+Open `/map` to search by venue name, tap nearby food venues (zoom 15+), or drop a pin. GPS enables proximity sorting and route previews. Guests can save and edit locally without signing in. Venue addresses and OSM identifiers are stored in IndexedDB; legacy records migrate into venues and individual visit logs. Original numeric-key records and images remain untouched as an archive; the new journal uses a 1–5 rating scale (legacy ratings are divided by two and clamped to 1–5).
 
 Photon powers search, Nominatim resolves manual pins, and Overpass supplies nearby venues (including `shop=bakery`). Driving previews use the OSRM demo; walking previews use FOSSGIS's separately prepared public OSRM pedestrian graph at `routing.openstreetmap.de/routed-foot`. Changing the profile token on a driving graph does not produce a pedestrian route. All requests have cancellation, timeouts, and offline/error fallbacks. Reverse lookup and route requests are rate-limited; viewport discovery is debounced and cached in memory.
 
@@ -125,8 +125,19 @@ Validation:
 
 ```sh
 npm run test:map
+npm run test:journal
 npx tsc --noEmit
 npm run build
 ```
 
 The map regression suite covers the v6-to-v7 migration, location metadata round trips, offline/non-200 fallbacks, POI deduplication/cache, routing endpoint selection, and sync races. Browser checks should also cover GPS denial, search/POI selection, route dismissal, guest edits, and offline reloads against a production build (`npm run start`); service workers are disabled in development.
+
+## Dining journal and cloud setup
+
+The existing `/` route is the journal; `/map` is discovery. Both support guests and use Dexie as the source of truth. Version 8 adds `venues` (normalized Spot records), `visitLogs`, `collections`, `photoQueue`, and sync checkpoints while retaining the old `spots` and `images` stores unchanged. Repeated legacy entries are grouped only by OSM ID or matching name within 50 m; all visits and original photos remain available. Unlocated records remain in the journal without false map pins.
+
+Save a venue to Wishlist without a rating, then use Mark as Visited to create its first visit. Log Visit appends to its history; Edit venue manages vibe tags, budget, menu notes and collections. Filters and Pick For Me work locally. Tools contains local insights, collection management, PNG share cards, JSON backup/restore and CSV export. JSON embeds pending originals and local previews, plus URLs for uploaded originals; restore validates the complete file before a transactional, timestamp-based merge. Guest records stay local until explicitly assigned to a signed-in account in Tools → Data.
+
+Authenticated sync uses `users/{uid}/venues`, `visitLogs`, and `collections`; it imports old `spots` and `images` once, subscribes from a per-table checkpoint, pushes pending records with Firestore transactions, and retains deletion tombstones. Photos use `users/{uid}/journal/{photoId}` in Firebase Storage. Set `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` along with the existing Firebase environment variables, enable Storage in the Firebase project, and review/deploy `storage.rules` and `firestore.rules` alongside your existing production policies. These rule files are supplied for deployment; this change does not deploy rules or enable cloud services. Failed uploads remain local and retry on reconnect or the background sweep.
+
+PWA shortcuts open Quick Log Spot and Nearby Wishlist. Test offline behavior with a production build: development disables the service worker. Previously loaded app routes, local photos, filters, visits, saved addresses, and backup export work offline; new OSM results and uncached map tiles require connectivity.

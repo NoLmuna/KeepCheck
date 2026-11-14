@@ -75,6 +75,16 @@ function object(v: unknown): Record<string, unknown> {
 }
 const finite = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v);
+const timestamp = (v: unknown): v is number =>
+  finite(v) && v >= 0 && v <= 8640000000000000;
+function optionalText(record: Record<string, unknown>, keys: string[]) {
+  return keys.every(
+    (key) => record[key] === undefined || typeof record[key] === "string",
+  );
+}
+const imageUrl = (v: unknown) =>
+  typeof v === "string" &&
+  /^(https?:\/\/|data:image\/(webp|jpeg|png);base64,)/.test(v);
 const strings = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
 function base(v: unknown) {
@@ -83,8 +93,8 @@ function base(v: unknown) {
     typeof r.id !== "string" ||
     !r.id ||
     r.id.includes("/") ||
-    !finite(r.createdAt) ||
-    !finite(r.updatedAt) ||
+    !timestamp(r.createdAt) ||
+    !timestamp(r.updatedAt) ||
     !["pending", "synced", "error"].includes(String(r.syncStatus)) ||
     (r.isDeleted !== undefined && typeof r.isDeleted !== "boolean")
   )
@@ -121,6 +131,11 @@ export function validateBackup(input: unknown): Backup {
       !finite(l.lng) ||
       Math.abs(l.lng) > 180 ||
       typeof l.formattedAddress !== "string" ||
+      !optionalText(l, ["locality", "osmId"]) ||
+      !optionalText(s, ["localCoverPhotoId"]) ||
+      (s.coverPhotoUrl !== undefined && !imageUrl(s.coverPhotoUrl)) ||
+      (s.locationMissing !== undefined &&
+        typeof s.locationMissing !== "boolean") ||
       (s.overallRating !== undefined &&
         (!finite(s.overallRating) ||
           s.overallRating < 1 ||
@@ -149,9 +164,11 @@ export function validateBackup(input: unknown): Backup {
       !finite(v.rating) ||
       v.rating < 1 ||
       v.rating > 5 ||
-      !finite(v.visitedAt) ||
+      !timestamp(v.visitedAt) ||
+      !optionalText(v, ["notes"]) ||
       !strings(v.itemsOrdered) ||
       !strings(v.photoUrls) ||
+      !v.photoUrls.every(imageUrl) ||
       !strings(v.localPhotoIds) ||
       (v.totalSpend !== undefined &&
         (!finite(v.totalSpend) || v.totalSpend < 0))
@@ -160,7 +177,11 @@ export function validateBackup(input: unknown): Backup {
   }
   for (const value of b.collections) {
     const c = base(value);
-    if (typeof c.name !== "string" || !c.name.trim())
+    if (
+      typeof c.name !== "string" ||
+      !c.name.trim() ||
+      !optionalText(c, ["description"])
+    )
       throw new Error("Invalid collection");
   }
   for (const value of b.photos) {
@@ -168,6 +189,9 @@ export function validateBackup(input: unknown): Backup {
     if (
       typeof p.id !== "string" ||
       !p.id ||
+      p.id.includes("/") ||
+      !timestamp(p.createdAt) ||
+      (p.remoteUrl !== undefined && !imageUrl(p.remoteUrl)) ||
       !spotIds.has(p.spotId) ||
       !visitIds.has(p.visitLogId) ||
       !["pending", "uploaded"].includes(String(p.status)) ||
@@ -218,7 +242,11 @@ export async function restoreBackup(input: unknown, uid?: string) {
       await merge("collections", backup.collections);
       for (const p of photos) {
         const old = await db.photoQueue.get(p.id);
-        if (!old || (!old.blob && p.blob))
+        if (old?.userId && old.userId !== uid)
+          throw new Error(
+            "A photo ID belongs to another account on this device",
+          );
+        if (!old || (!old.blob && p.blob && old.status !== "uploaded"))
           await db.photoQueue.put({
             ...p,
             userId: uid,
