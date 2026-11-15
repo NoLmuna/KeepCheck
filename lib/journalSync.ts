@@ -27,6 +27,60 @@ const kinds: Kind[] = ["venues", "visitLogs", "collections"];
 function table(kind: Kind) {
   return db.table<RecordData, string>(kind);
 }
+export async function associateLocalRecordsWithUser(uid: string): Promise<number> {
+  let count = 0;
+  await db.transaction(
+    "rw",
+    [db.venues, db.visitLogs, db.collections, db.photoQueue],
+    async () => {
+      const unownedVenues = await db.venues
+        .filter((v) => !v.userId || v.userId === "")
+        .toArray();
+      for (const v of unownedVenues) {
+        await db.venues.put({
+          ...v,
+          userId: uid,
+          syncStatus: "pending",
+          updatedAt: Date.now(),
+        });
+        count++;
+      }
+      const unownedVisits = await db.visitLogs
+        .filter((v) => !v.userId || v.userId === "")
+        .toArray();
+      for (const v of unownedVisits) {
+        await db.visitLogs.put({
+          ...v,
+          userId: uid,
+          syncStatus: "pending",
+          updatedAt: Date.now(),
+        });
+        count++;
+      }
+      const unownedCollections = await db.collections
+        .filter((c) => !c.userId || c.userId === "")
+        .toArray();
+      for (const c of unownedCollections) {
+        await db.collections.put({
+          ...c,
+          userId: uid,
+          syncStatus: "pending",
+          updatedAt: Date.now(),
+        });
+        count++;
+      }
+      const unownedPhotos = await db.photoQueue
+        .filter((p) => !p.userId || p.userId === "")
+        .toArray();
+      for (const p of unownedPhotos) {
+        await db.photoQueue.put({ ...p, userId: uid });
+        count++;
+      }
+    },
+  );
+  return count;
+}
+
 export async function mergeJournalRecords(
   kind: Kind,
   records: RecordData[],

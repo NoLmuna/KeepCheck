@@ -1,8 +1,11 @@
 "use client";
+
 import { useEffect, useRef, useState } from "react";
+import { SlidersHorizontal, Sparkles, RotateCcw } from "lucide-react";
 import { defaultFilters } from "@/lib/journal";
 import { vibeTags, type SpotCollection } from "@/lib/models";
 import type { Filters } from "@/lib/journal";
+
 export default function JournalFilters({
   value,
   onChange,
@@ -21,6 +24,7 @@ export default function JournalFilters({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     if (!open) return;
     const dismiss = (event: PointerEvent) => {
@@ -29,6 +33,7 @@ export default function JournalFilters({
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [open]);
+
   const count =
     Number(value.category !== "all") +
     value.vibes.length +
@@ -36,11 +41,13 @@ export default function JournalFilters({
     Number(value.distance > 0) +
     Number(value.collection !== "all") +
     Number(value.sort !== "recent");
+
   const update = (patch: Partial<Filters>) => onChange({ ...value, ...patch });
+
   return (
     <div
       ref={root}
-      className="journal-controls filter-root"
+      className="relative filter-root inline-block"
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
@@ -51,117 +58,198 @@ export default function JournalFilters({
     >
       <button
         ref={trigger}
+        type="button"
         aria-label="Filters & Decide"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
+        className={`h-10 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+          count > 0 || open
+            ? "bg-amber-50 text-amber-900 border-amber-300 shadow-xs"
+            : "bg-white text-stone-700 border-stone-200/90 hover:border-amber-300 hover:bg-stone-50"
+        }`}
       >
-        Filters{count ? ` (${count})` : ""}
+        <SlidersHorizontal className="w-3.5 h-3.5 text-stone-500" />
+        <span>Filters</span>
+        {count > 0 && (
+          <span className="w-4 h-4 rounded-full bg-amber-600 text-white text-[10px] font-bold flex items-center justify-center">
+            {count}
+          </span>
+        )}
       </button>
+
       {open && (
         <div
-          className="filter-popover"
+          className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 z-50 w-[320px] max-w-[calc(100vw-32px)] bg-white border border-stone-200 rounded-2xl shadow-xl p-4 space-y-3.5 text-stone-900"
           role="region"
           aria-label="Filters & Decide"
         >
-          <div className="grid grid-cols-2 gap-2">
-            <select
-              aria-label="Filter category"
-              value={value.category}
-              onChange={(e) => update({ category: e.target.value })}
-            >
-              <option value="all">All categories</option>
-              {["coffee", "restaurant", "bakery", "bar", "other"].map((v) => (
-                <option key={v}>{v}</option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter budget"
-              value={value.budget}
-              onChange={(e) => update({ budget: e.target.value })}
-            >
-              <option value="all">Any budget</option>
-              {["₱", "₱₱", "₱₱₱"].map((v) => (
-                <option key={v}>{v}</option>
-              ))}
-            </select>
-            <select
-              aria-label="Maximum distance"
-              value={value.distance}
-              onChange={(e) => update({ distance: Number(e.target.value) })}
-            >
-              <option value={0}>Any distance</option>
-              <option disabled={!hasGps} value={1000}>
-                Within 1 km
-              </option>
-              <option disabled={!hasGps} value={3000}>
-                Within 3 km
-              </option>
-            </select>
-            <select
-              aria-label="Filter collection"
-              value={value.collection}
-              onChange={(e) => update({ collection: e.target.value })}
-            >
-              <option value="all">All collections</option>
-              {collections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Sort saved spots"
-              value={value.sort}
-              onChange={(e) => update({ sort: e.target.value })}
-            >
-              <option value="recent">Recently Visited</option>
-              <option value="rating">Highest Rated</option>
-              <option value="nearest" disabled={!hasGps}>
-                Nearest to Me
-              </option>
-            </select>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-1">
-            {vibeTags.map((v) => (
+          <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+            <h4 className="font-serif font-bold text-sm text-stone-900">
+              Filter Spots
+            </h4>
+            {count > 0 && (
               <button
-                className="shrink-0"
-                key={v}
-                aria-label={`Filter ${v.replaceAll("-", " ")}`}
-                aria-pressed={value.vibes.includes(v)}
+                type="button"
                 onClick={() =>
-                  update({
-                    vibes: value.vibes.includes(v)
-                      ? value.vibes.filter((x) => x !== v)
-                      : [...value.vibes, v],
+                  onChange({
+                    ...defaultFilters,
+                    status: value.status,
+                    query: value.query,
                   })
                 }
+                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 cursor-pointer"
               >
-                {v.replaceAll("-", " ")}
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset</span>
               </button>
-            ))}
+            )}
           </div>
-          <div className="mt-3 flex gap-2">
+
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                Category
+              </label>
+              <select
+                aria-label="Filter category"
+                value={value.category}
+                onChange={(e) => update({ category: e.target.value })}
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+              >
+                <option value="all">All categories</option>
+                {["coffee", "restaurant", "bakery", "bar", "other"].map((v) => (
+                  <option key={v} value={v}>
+                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                Budget
+              </label>
+              <select
+                aria-label="Filter budget"
+                value={value.budget}
+                onChange={(e) => update({ budget: e.target.value })}
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+              >
+                <option value="all">Any budget</option>
+                {["₱", "₱₱", "₱₱₱"].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                Distance
+              </label>
+              <select
+                aria-label="Maximum distance"
+                value={value.distance}
+                onChange={(e) => update({ distance: Number(e.target.value) })}
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+              >
+                <option value={0}>Any distance</option>
+                <option disabled={!hasGps} value={1000}>
+                  Within 1 km
+                </option>
+                <option disabled={!hasGps} value={3000}>
+                  Within 3 km
+                </option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                Sort Order
+              </label>
+              <select
+                aria-label="Sort saved spots"
+                value={value.sort}
+                onChange={(e) => update({ sort: e.target.value })}
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+              >
+                <option value="recent">Recently Visited</option>
+                <option value="rating">Highest Rated</option>
+                <option value="nearest" disabled={!hasGps}>
+                  Nearest to Me
+                </option>
+              </select>
+            </div>
+          </div>
+
+          {collections.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                Collection
+              </label>
+              <select
+                aria-label="Filter collection"
+                value={value.collection}
+                onChange={(e) => update({ collection: e.target.value })}
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+              >
+                <option value="all">All collections</option>
+                {collections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Vibe Chips */}
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1.5">
+              Vibes & Tags
+            </label>
+            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+              {vibeTags.map((v) => {
+                const active = value.vibes.includes(v);
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-label={`Filter ${v.replaceAll("-", " ")}`}
+                    aria-pressed={active}
+                    onClick={() =>
+                      update({
+                        vibes: active
+                          ? value.vibes.filter((x) => x !== v)
+                          : [...value.vibes, v],
+                      })
+                    }
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer capitalize ${
+                      active
+                        ? "bg-amber-100 text-amber-900 border-amber-300 font-semibold"
+                        : "bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200"
+                    }`}
+                  >
+                    {v.replaceAll("-", " ")}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Bottom Action: Pick For Me */}
+          <div className="pt-2 border-t border-stone-100">
             <button
-              aria-label="Reset filters"
-              onClick={() =>
-                onChange({
-                  ...defaultFilters,
-                  status: value.status,
-                  query: value.query,
-                })
-              }
-            >
-              Reset filters
-            </button>
-            <button
+              type="button"
               aria-label="Pick For Me"
               disabled={!canPick}
               onClick={() => {
                 onPick();
                 setOpen(false);
               }}
+              className="w-full py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-40"
             >
-              ✦ Pick For Me
+              <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+              <span>✦ Pick For Me</span>
             </button>
           </div>
         </div>
@@ -178,22 +266,33 @@ export function StatusTabs({
   onChange: (f: Filters) => void;
 }) {
   return (
-    <div className="journal-controls flex gap-1" aria-label="Venue status">
-      {["all", "visited", "wishlist"].map((status) => (
-        <button
-          key={status}
-          className="flex-1"
-          aria-label={`Show ${status} venues`}
-          aria-pressed={value.status === status}
-          onClick={() => onChange({ ...value, status })}
-        >
-          {status === "all"
-            ? "All"
-            : status === "visited"
-              ? "Visited"
-              : "Wishlist"}
-        </button>
-      ))}
+    <div
+      className="inline-flex items-center p-0.5 bg-stone-100 rounded-xl border border-stone-200/80 text-xs font-semibold"
+      aria-label="Venue status tabs"
+    >
+      {[
+        { key: "all", label: "All" },
+        { key: "visited", label: "Visited" },
+        { key: "wishlist", label: "Wishlist" },
+      ].map((tab) => {
+        const isSelected = value.status === tab.key;
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            aria-label={`Show ${tab.label} venues`}
+            aria-pressed={isSelected}
+            onClick={() => onChange({ ...value, status: tab.key })}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              isSelected
+                ? "bg-white text-stone-900 shadow-xs font-bold"
+                : "text-stone-600 hover:text-stone-900"
+            }`}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

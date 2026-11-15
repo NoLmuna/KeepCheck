@@ -10,19 +10,17 @@ import {
   type ReactNode,
 } from "react";
 import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   onAuthStateChanged,
-  signInWithCustomToken,
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
-import {
-  signIn as nextAuthSignIn,
-  signOut as nextAuthSignOut,
-  useSession,
-  SessionProvider,
-} from "next-auth/react";
 import { getFirebaseAuth } from "./firebase";
 import { useToast } from "./toast";
+import { associateLocalRecordsWithUser } from "./journalSync";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -47,7 +45,10 @@ export interface CachedSession {
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  signInWithGoogle: (email?: string) => Promise<void>;
+  isGuest: boolean;
+  continueAsGuest: () => void;
+  exitGuestMode: () => void;
+  signInWithGoogle: (email?: string) => Promise<User | void>;
   signOut: () => Promise<void>;
   quickLoginAccounts: QuickLoginAccount[];
   /** Cached session from localStorage — available instantly, even offline. */
@@ -56,6 +57,7 @@ interface AuthContextValue {
 
 const QUICK_LOGIN_KEY = "keepcheck-quick-login";
 const SESSION_CACHE_KEY = "keepcheck-session";
+const GUEST_MODE_KEY = "keepcheck-guest-mode";
 const MAX_QUICK_LOGIN = 5;
 
 /* ------------------------------------------------------------------ */
@@ -63,6 +65,7 @@ const MAX_QUICK_LOGIN = 5;
 /* ------------------------------------------------------------------ */
 
 function loadCachedSession(): CachedSession | null {
+  if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(SESSION_CACHE_KEY);
     if (!raw) return null;
@@ -75,6 +78,7 @@ function loadCachedSession(): CachedSession | null {
 }
 
 function saveCachedSession(user: User): void {
+  if (typeof window === "undefined") return;
   try {
     const session: CachedSession = {
       uid: user.uid,
@@ -89,6 +93,7 @@ function saveCachedSession(user: User): void {
 }
 
 function clearCachedSession(): void {
+  if (typeof window === "undefined") return;
   try {
     localStorage.removeItem(SESSION_CACHE_KEY);
   } catch {
@@ -103,62 +108,37 @@ function clearCachedSession(): void {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /* ------------------------------------------------------------------ */
-/*  Provider (outer shell)                                             */
-/*                                                                     */
-/*  SessionProvider must wrap AuthProviderInner so that useSession()   */
-/*  inside AuthProviderInner is a valid descendant of the provider.    */
-/*  A component cannot render SessionProvider and also call            */
-/*  useSession() in the same function body — React context requires    */
-/*  the consumer to be a child in the tree.                            */
+/*  Provider                                                           */
 /* ------------------------------------------------------------------ */
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  return (
-    <SessionProvider>
-      <AuthProviderInner>{children}</AuthProviderInner>
-    </SessionProvider>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Provider (inner — has access to useSession)                        */
-/* ------------------------------------------------------------------ */
-
-function AuthProviderInner({ children }: { children: ReactNode }) {
-  const { data: nextAuthSession, status: nextAuthStatus } = useSession();
   const { showToast } = useToast();
 
   const [user, setUser] = useState<User | null>(null);
-  const [firebaseLoading, setFirebaseLoading] = useState(true);
-  const [bridgeError, setBridgeError] = useState<string | null>(null);
-  const [quickLoginAccounts, setQuickLoginAccounts] = useState<
-    QuickLoginAccount[]
-  >([]);
+  const [loading, setLoading] = useState(true);
+  const [isGuest, setIsGuest] = useState(false);
+  const [quickLoginAccounts, setQuickLoginAccounts] = useState<QuickLoginAccount[]>([]);
   const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
 
   // Guard to prevent repeating welcome toast
   const prevUserRef = useRef<User | null>(null);
 
-  // ---- Ref guard: prevent duplicate token-bridge calls ----
-  // Similar to the old redirectHandled ref — ensures the POST to
-  // /api/firebase-token fires at most once per session lifecycle,
-  // even if the effect re-runs before Firebase auth state has updated.
-  const tokenBridgeInFlight = useRef(false);
-
-  // Load cached session + quick-login history from localStorage on mount.
+  // Load cached session + guest mode + quick-login history from localStorage on mount.
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(QUICK_LOGIN_KEY);
-      if (stored) setQuickLoginAccounts(JSON.parse(stored));
-    } catch {
-      // Ignore parse errors.
-    }
+      const storedGuest = localStorage.getItem(GUEST_MODE_KEY);
+      if (storedGuest === "true") setIsGuest(true);
+    } catch {}
 
-    // Load cached session for instant offline rendering
     const cached = loadCachedSession();
     if (cached) {
       setCachedSession(cached);
     }
+
+    try {
+      const stored = localStorage.getItem(QUICK_LOGIN_KEY);
+      if (stored) setQuickLoginAccounts(JSON.parse(stored));
+    } catch {}
   }, []);
 
   const saveToQuickLogin = useCallback((u: User) => {
@@ -175,33 +155,57 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
       try {
         localStorage.setItem(QUICK_LOGIN_KEY, JSON.stringify(updated));
-      } catch {
-        // Storage full — silently skip.
-      }
+      } catch {}
 
       return updated;
     });
   }, []);
 
-  // Listen to Firebase auth state.
+  // Listen to Firebase auth state & handle redirect result
   useEffect(() => {
     if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
-      setFirebaseLoading(false);
+      setLoading(false);
       return;
     }
-    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (firebaseUser) => {
-      if (firebaseUser && !prevUserRef.current) {
-        const name = firebaseUser.displayName ?? firebaseUser.email ?? "User";
-        showToast(`👋 Welcome back, ${name}!`, "success");
-      }
-      prevUserRef.current = firebaseUser;
 
-      setUser(firebaseUser);
-      setFirebaseLoading(false);
+    let isMounted = true;
+    const auth = getFirebaseAuth();
+
+    // Check for pending redirect sign-in result (mobile / PWA fallback)
+    getRedirectResult(auth)
+      .then((result) => {
+        if (!isMounted) return;
+        if (result?.user) {
+          setIsGuest(false);
+          try {
+            localStorage.removeItem(GUEST_MODE_KEY);
+          } catch {}
+        }
+      })
+      .catch((err: unknown) => {
+        const authErr = err as { code?: string; message?: string };
+        if (authErr?.code && authErr.code !== "auth/popup-closed-by-user") {
+          console.warn("[KeepCheck Auth] Redirect result error:", err);
+        }
+      });
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!isMounted) return;
 
       if (firebaseUser) {
+        if (!prevUserRef.current) {
+          const name = firebaseUser.displayName ?? firebaseUser.email ?? "friend";
+          showToast(`👋 Welcome back, ${name}!`, "success");
+        }
+        prevUserRef.current = firebaseUser;
+
+        setUser(firebaseUser);
+        setIsGuest(false);
+        try {
+          localStorage.removeItem(GUEST_MODE_KEY);
+        } catch {}
+
         saveToQuickLogin(firebaseUser);
-        // Persist session for offline access
         saveCachedSession(firebaseUser);
         setCachedSession({
           uid: firebaseUser.uid,
@@ -209,110 +213,107 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
           email: firebaseUser.email,
           photoURL: firebaseUser.photoURL,
         });
+
+        // Automatically associate guest/local records with user.uid
+        try {
+          await associateLocalRecordsWithUser(firebaseUser.uid);
+        } catch (e) {
+          console.error("[KeepCheck Auth] Failed to associate local records:", e);
+        }
+      } else {
+        setUser(null);
       }
+      setLoading(false);
     });
-    return unsubscribe;
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [saveToQuickLogin, showToast]);
 
-  // ---- NextAuth → Firebase token bridge ----
-  //
-  // When NextAuth has an active session (user authenticated via Google OAuth)
-  // but Firebase doesn't have a user yet, exchange the NextAuth session for a
-  // Firebase custom token. The ref guard prevents duplicate requests.
-  useEffect(() => {
-    // Only proceed when:
-    //  - NextAuth has resolved (not "loading")
-    //  - NextAuth has a session with an email
-    //  - Firebase doesn't have a user yet
-    //  - We haven't already started a bridge request
-    if (
-      nextAuthStatus !== "authenticated" ||
-      !nextAuthSession?.user?.email ||
-      user !== null ||
-      tokenBridgeInFlight.current
-    ) {
-      return;
-    }
+  // Sign in with Google using Firebase Authentication (popup with redirect fallback)
+  const signInWithGoogle = useCallback(async (emailHint?: string): Promise<User | void> => {
+    const auth = getFirebaseAuth();
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: "select_account",
+      ...(emailHint ? { login_hint: emailHint } : {}),
+    });
 
-    tokenBridgeInFlight.current = true;
-    setBridgeError(null);
-
-    (async () => {
+    try {
+      const result = await signInWithPopup(auth, provider);
+      setIsGuest(false);
       try {
-        const res = await fetch("/api/firebase-token", { method: "POST" });
-        if (!res.ok) {
-          const body = await res.text();
-          throw new Error(`Token bridge failed (${res.status}): ${body}`);
-        }
-
-        const { customToken } = await res.json();
-        await signInWithCustomToken(getFirebaseAuth(), customToken);
-        // onAuthStateChanged will pick up the new Firebase user and
-        // trigger saveToQuickLogin + saveCachedSession automatically.
-      } catch (err) {
-        console.error("[KeepCheck] Firebase token bridge error:", err);
-        // Reset the guard so the user can retry (e.g. by refreshing).
-        tokenBridgeInFlight.current = false;
-        setBridgeError(err instanceof Error ? err.message : String(err));
-        showToast("Authentication session error. Please try again.", "error");
+        localStorage.removeItem(GUEST_MODE_KEY);
+      } catch {}
+      return result.user;
+    } catch (err: unknown) {
+      const authErr = err as { code?: string; message?: string };
+      // Automatic fallback to redirect if popup is blocked or unsupported in standalone PWA
+      if (
+        authErr.code === "auth/popup-blocked" ||
+        authErr.code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        await signInWithRedirect(auth, provider);
+        return;
       }
-    })();
-  }, [nextAuthStatus, nextAuthSession, user, showToast]);
-
-  // Sign in with Google via NextAuth's OAuth flow.
-  // NextAuth handles the full OAuth redirect → callback → session lifecycle.
-  const signInWithGoogle = useCallback(async (email?: string) => {
-    // Reset the bridge guard so a fresh sign-in triggers the bridge.
-    tokenBridgeInFlight.current = false;
-    setBridgeError(null);
-    await nextAuthSignIn("google", undefined, email ? { login_hint: email } : undefined);
+      if (authErr.code === "auth/popup-closed-by-user") {
+        throw new Error("Sign-in cancelled.");
+      }
+      if (authErr.code === "auth/cancelled-popup-request") {
+        return;
+      }
+      throw new Error(authErr.message || "Sign-in failed. Please try again.");
+    }
   }, []);
 
-  // Sign out of BOTH NextAuth and Firebase.
-  // Uses { redirect: false } for NextAuth so we preserve the existing behavior
-  // of clearing local state instantly without a full page reload/navigation.
+  // Sign out cleanly
   const signOut = useCallback(async () => {
-    console.log("[KeepCheck AuthContext] signOut called");
     showToast("👋 Signed out successfully", "info");
-
     try {
-      // 1. Sign out of NextAuth without redirecting — explicitly set { redirect: false }
-      // so it does NOT perform a full page reload redirect, avoiding races against Firebase's signOut.
-      await nextAuthSignOut({ redirect: false });
-      console.log("[KeepCheck AuthContext] NextAuth signOut completed successfully");
+      const auth = getFirebaseAuth();
+      await firebaseSignOut(auth);
     } catch (error) {
-      console.error("[KeepCheck AuthContext] NextAuth signOut error:", error);
+      console.error("[KeepCheck Auth] Firebase signOut error:", error);
     }
 
-    try {
-      // 2. Sign out of Firebase
-      await firebaseSignOut(getFirebaseAuth());
-      console.log("[KeepCheck AuthContext] Firebase signOut completed successfully");
-    } catch (error) {
-      console.error("[KeepCheck AuthContext] Firebase signOut error:", error);
-    }
-
-    // 3. Clear cached session and local states only AFTER both operations complete
     clearCachedSession();
     setCachedSession(null);
-
-    // Reset bridge guard for next sign-in
-    tokenBridgeInFlight.current = false;
-    setBridgeError(null);
-
-    // Set user to null to trigger AuthGuard redirect
-    console.log("[KeepCheck AuthContext] Setting user to null");
     setUser(null);
+    setIsGuest(false);
+    try {
+      localStorage.removeItem(GUEST_MODE_KEY);
+    } catch {}
   }, [showToast]);
 
-  const loading =
-    firebaseLoading ||
-    nextAuthStatus === "loading" ||
-    (nextAuthStatus === "authenticated" && !user && !bridgeError);
+  const continueAsGuest = useCallback(() => {
+    setIsGuest(true);
+    try {
+      localStorage.setItem(GUEST_MODE_KEY, "true");
+    } catch {}
+  }, []);
+
+  const exitGuestMode = useCallback(() => {
+    setIsGuest(false);
+    try {
+      localStorage.removeItem(GUEST_MODE_KEY);
+    } catch {}
+  }, []);
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, signInWithGoogle, signOut, quickLoginAccounts, cachedSession }}
+      value={{
+        user,
+        loading,
+        isGuest,
+        continueAsGuest,
+        exitGuestMode,
+        signInWithGoogle,
+        signOut,
+        quickLoginAccounts,
+        cachedSession,
+      }}
     >
       {children}
     </AuthContext.Provider>
