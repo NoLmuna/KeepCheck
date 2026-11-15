@@ -62,6 +62,9 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
 
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [selected, setSelected] = useState<Venue | null>(null);
+  const handleVenueSelection = useCallback((venue: Venue | null) => {
+    setSelected(venue);
+  }, []);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -706,7 +709,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
             context={context}
             pending={pending}
             externalSelection={selected}
-            onSelection={(venue) => setSelected(venue)}
+            onSelection={handleVenueSelection}
           />
         </div>
       </div>

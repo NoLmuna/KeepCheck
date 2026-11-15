@@ -72,10 +72,16 @@ async function request<T>(
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal.addEventListener("abort", abort, { once: true });
-  const timeout = setTimeout(abort, 12000);
+  const timeoutMs = url.includes("overpass") ? 4500 : 7000;
+  const timeout = setTimeout(abort, timeoutMs);
   try {
     const response = await fetch(url, {
       ...init,
+      headers: {
+        "User-Agent": "KeepCheck/1.0 (https://keep-check.vercel.app)",
+        Accept: "application/json, */*",
+        ...(init?.headers ?? {}),
+      },
       signal: controller.signal,
       referrerPolicy: "strict-origin-when-cross-origin",
     });

@@ -103,10 +103,24 @@ export default function SpotsMap({
   const [routeStatus, setRouteStatus] = useState("");
   const reverse = useRef<AbortController | null>(null);
 
+  const onSelectionRef = useRef(onSelection);
+  useEffect(() => {
+    onSelectionRef.current = onSelection;
+  });
+
   const saved = useMemo(
     () =>
       spots.flatMap((s) => {
-        const v = s.locationMissing ? undefined : journalVenue(s);
+        if (
+          s.locationMissing ||
+          !s.location ||
+          !Number.isFinite(s.location.lat) ||
+          !Number.isFinite(s.location.lng) ||
+          (s.location.lat === 0 && s.location.lng === 0)
+        ) {
+          return [];
+        }
+        const v = journalVenue(s);
         return v ? [v] : [];
       }),
     [spots],
@@ -126,6 +140,32 @@ export default function SpotsMap({
     });
   }, []);
 
+  const hasAutoCentered = useRef(false);
+
+  // Auto-center map when saved spots or external selection become available
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || hasAutoCentered.current) return;
+
+    if (externalSelection && !externalSelection.record?.locationMissing) {
+      hasAutoCentered.current = true;
+      map.setView([externalSelection.location.lat, externalSelection.location.lng], 16);
+      return;
+    }
+
+    if (saved.length > 0) {
+      hasAutoCentered.current = true;
+      if (saved.length === 1) {
+        map.setView([saved[0].location.lat, saved[0].location.lng], 16);
+      } else {
+        const bounds = L.latLngBounds(
+          saved.map((v) => [v.location.lat, v.location.lng] as L.LatLngTuple),
+        );
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      }
+    }
+  }, [saved, externalSelection]);
+
   useEffect(() => {
     if (externalSelection) {
       setSelected(externalSelection);
@@ -140,7 +180,7 @@ export default function SpotsMap({
     (venue: Venue) => {
       reverse.current?.abort();
       setSelected(venue);
-      onSelection(venue);
+      onSelectionRef.current?.(venue);
       setShowRoute(false);
       setRoute(null);
       setRouteStatus("");
@@ -148,7 +188,7 @@ export default function SpotsMap({
       setResults([]);
       flyToVenue(venue);
     },
-    [flyToVenue, onSelection],
+    [flyToVenue],
   );
 
   // Initialize Leaflet map
@@ -183,7 +223,7 @@ export default function SpotsMap({
         location,
       };
       setSelected(venue);
-      onSelection(venue);
+      onSelectionRef.current?.(venue);
       setShowRoute(false);
       setRoute(null);
       setRouteStatus("");
@@ -192,7 +232,7 @@ export default function SpotsMap({
         if (!controller.signal.aborted) {
           const updated = { ...venue, location: resolved };
           setSelected(updated);
-          onSelection(updated);
+          onSelectionRef.current?.(updated);
         }
       });
     };
@@ -208,7 +248,7 @@ export default function SpotsMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [onSelection]);
+  }, []);
 
   // Discover live POIs (capped at 35, zoom >= 15)
   useEffect(() => {
@@ -245,7 +285,7 @@ export default function SpotsMap({
             online ? "Finding nearby venues…" : "Offline · cached venues only",
           );
 
-          const venues = await discoverVenues(
+          let venues = await discoverVenues(
             discoveryBounds(
               {
                 south: b.getSouth(),
@@ -258,10 +298,19 @@ export default function SpotsMap({
             signal,
           );
 
+          // Fallback: if Overpass timed out or returned no venues, query Photon nearby
+          if ((!venues || venues.length === 0) && online && !signal.aborted) {
+            const center = map.getCenter();
+            const photonVenues = await searchVenues("cafe", center, signal);
+            if (photonVenues && photonVenues.length > 0) {
+              venues = photonVenues;
+            }
+          }
+
           if (!isMounted || signal.aborted) return;
           if (venues) setPois(venues.slice(0, 35));
           setDiscoveryStatus(
-            venues
+            venues && venues.length > 0
               ? `${Math.min(venues.length, 35)} nearby cafés found${online ? "" : " · cached"}`
               : "Nearby cafés unavailable",
           );
@@ -394,7 +443,10 @@ export default function SpotsMap({
         entry = { marker, venue };
         markers.current.set(venue.key, entry);
         const cur = entry;
-        marker.on("click", () => choose(cur.venue));
+        marker.on("click", (e: L.LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(e);
+          choose(cur.venue);
+        });
       } else {
         entry.venue = venue;
         const old = entry.marker.getLatLng();
@@ -532,9 +584,9 @@ export default function SpotsMap({
   const close = useCallback(() => {
     reverse.current?.abort();
     setSelected(null);
-    onSelection(null);
+    onSelectionRef.current?.(null);
     setShowRoute(false);
-  }, [onSelection]);
+  }, []);
 
   function handleLocateMe() {
     if (gps.includes("denied")) {
@@ -554,7 +606,10 @@ export default function SpotsMap({
     if (!map || !(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
     try {
       if (map.getZoom() < 15) {
-        map.flyTo(map.getCenter(), 15, { duration: 1.0 });
+        map.flyTo(map.getCenter(), 16, { duration: 0.8 });
+      } else {
+        setDiscoveryStatus(online ? "Finding nearby venues…" : "Offline · cached venues only");
+        map.fire("moveend");
       }
     } catch {}
   }
