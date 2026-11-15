@@ -212,6 +212,7 @@ export default function SpotsMap({
 
   // Discover live POIs (capped at 35, zoom >= 15)
   useEffect(() => {
+    let isMounted = true;
     const map = mapRef.current;
     if (!map) return;
     let timer: ReturnType<typeof setTimeout>;
@@ -220,47 +221,65 @@ export default function SpotsMap({
     const update = () => {
       clearTimeout(timer);
       controller?.abort();
-      if (map.getZoom() < 15) {
-        setPois([]);
-        setDiscoveryStatus("Zoom in to see nearby cafés");
+      if (!isMounted || !mapRef.current) return;
+
+      try {
+        if (!(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
+        if (map.getZoom() < 15) {
+          setPois([]);
+          setDiscoveryStatus("Zoom in to see nearby cafés");
+          return;
+        }
+      } catch {
         return;
       }
 
       timer = setTimeout(async () => {
-        controller = new AbortController();
-        const signal = controller.signal;
-        const b = map.getBounds();
-        setDiscoveryStatus(
-          online ? "Finding nearby venues…" : "Offline · cached venues only",
-        );
+        if (!isMounted || !mapRef.current) return;
+        try {
+          if (!(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
+          controller = new AbortController();
+          const signal = controller.signal;
+          const b = map.getBounds();
+          setDiscoveryStatus(
+            online ? "Finding nearby venues…" : "Offline · cached venues only",
+          );
 
-        const venues = await discoverVenues(
-          discoveryBounds(
-            {
-              south: b.getSouth(),
-              west: b.getWest(),
-              north: b.getNorth(),
-              east: b.getEast(),
-            },
-            map.getCenter(),
-          ),
-          signal,
-        );
+          const venues = await discoverVenues(
+            discoveryBounds(
+              {
+                south: b.getSouth(),
+                west: b.getWest(),
+                north: b.getNorth(),
+                east: b.getEast(),
+              },
+              map.getCenter(),
+            ),
+            signal,
+          );
 
-        if (signal.aborted) return;
-        if (venues) setPois(venues.slice(0, 35));
-        setDiscoveryStatus(
-          venues
-            ? `${Math.min(venues.length, 35)} nearby cafés found${online ? "" : " · cached"}`
-            : "Nearby cafés unavailable",
-        );
+          if (!isMounted || signal.aborted) return;
+          if (venues) setPois(venues.slice(0, 35));
+          setDiscoveryStatus(
+            venues
+              ? `${Math.min(venues.length, 35)} nearby cafés found${online ? "" : " · cached"}`
+              : "Nearby cafés unavailable",
+          );
+        } catch {
+          // Gracefully suppress tear-down calculation errors when map unmounts
+        }
       }, 600);
     };
 
     map.on("moveend", update);
-    update();
+    if ((map as unknown as { _loaded?: boolean })._loaded) {
+      update();
+    } else {
+      map.whenReady(update);
+    }
 
     return () => {
+      isMounted = false;
       clearTimeout(timer);
       controller?.abort();
       map.off("moveend", update);
@@ -314,8 +333,13 @@ export default function SpotsMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    const center = map.getCenter();
+    if (!map || !(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
+    let center: L.LatLng;
+    try {
+      center = map.getCenter();
+    } catch {
+      return;
+    }
     const ids = new Set(
       allSpots.flatMap((s) => (s.location.osmId ? [s.location.osmId] : [])),
     );
@@ -527,10 +551,12 @@ export default function SpotsMap({
 
   function handleDiscoveryClick() {
     const map = mapRef.current;
-    if (!map) return;
-    if (map.getZoom() < 15) {
-      map.flyTo(map.getCenter(), 15, { duration: 1.0 });
-    }
+    if (!map || !(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
+    try {
+      if (map.getZoom() < 15) {
+        map.flyTo(map.getCenter(), 15, { duration: 1.0 });
+      }
+    } catch {}
   }
 
   return (

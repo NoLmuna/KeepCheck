@@ -28,6 +28,7 @@ import {
 import { getFirebaseAuth } from "./firebase";
 import { useToast } from "./toast";
 import { associateLocalRecordsWithUser } from "./journalSync";
+import AuthTransitionOverlay, { type AuthActionState } from "@/components/AuthTransitionOverlay";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -52,6 +53,8 @@ export interface CachedSession {
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
+  authAction: AuthActionState;
+  setAuthAction: (action: AuthActionState) => void;
   isGuest: boolean;
   continueAsGuest: () => void;
   exitGuestMode: () => void;
@@ -136,6 +139,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null);
   const [firebaseLoading, setFirebaseLoading] = useState(true);
+  const [authAction, setAuthAction] = useState<AuthActionState>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [quickLoginAccounts, setQuickLoginAccounts] = useState<QuickLoginAccount[]>([]);
   const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
@@ -211,7 +215,9 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       if (firebaseUser) {
         if (!prevUserRef.current) {
           const name = firebaseUser.displayName ?? firebaseUser.email ?? "friend";
-          showToast(`Welcome back, ${name}!`, "success");
+          setTimeout(() => {
+            showToast(`Welcome back, ${name}!`, "success");
+          }, 250);
         }
         prevUserRef.current = firebaseUser;
 
@@ -230,6 +236,11 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
           photoURL: firebaseUser.photoURL,
         });
 
+        // Smoothly dismiss auth loader now that session is active
+        setTimeout(() => {
+          setAuthAction(null);
+        }, 200);
+
         // Automatically associate guest/local records with user.uid
         try {
           const claimedCount = await associateLocalRecordsWithUser(firebaseUser.uid);
@@ -241,6 +252,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         }
       } else {
         setUser(null);
+        setAuthAction((prev) => (prev === "signing-out" ? prev : null));
       }
       setFirebaseLoading(false);
     });
@@ -265,6 +277,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     }
 
     tokenBridgeInFlight.current = true;
+    setAuthAction("signing-in");
 
     (async () => {
       try {
@@ -283,6 +296,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       } catch (err) {
         console.warn("[KeepCheck] Firebase token bridge error (falling back to client auth):", err);
         tokenBridgeInFlight.current = false;
+        setAuthAction(null);
       }
     })();
   }, [nextAuthStatus, nextAuthSession, user]);
@@ -293,6 +307,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   const signInWithGoogle = useCallback(async (emailHint?: string): Promise<User | void> => {
     tokenBridgeInFlight.current = false;
     setIsGuest(false);
+    setAuthAction("signing-in");
     try {
       localStorage.removeItem(GUEST_MODE_KEY);
     } catch {}
@@ -317,11 +332,13 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       const result = await signInWithPopup(auth, provider);
       return result.user;
     } catch (err: unknown) {
+      setAuthAction(null);
       const authErr = err as { code?: string; message?: string };
       if (
         authErr.code === "auth/popup-blocked" ||
         authErr.code === "auth/operation-not-supported-in-this-environment"
       ) {
+        setAuthAction("signing-in");
         const auth = getFirebaseAuth();
         const provider = new GoogleAuthProvider();
         await signInWithRedirect(auth, provider);
@@ -339,7 +356,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   // Clean sign out of both NextAuth and Firebase
   const signOut = useCallback(async () => {
-    showToast("Signed out successfully", "info");
+    setAuthAction("signing-out");
 
     try {
       await nextAuthSignOut({ redirect: false });
@@ -358,10 +375,17 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     setCachedSession(null);
     setUser(null);
     setIsGuest(false);
+    prevUserRef.current = null;
     try {
       localStorage.removeItem(GUEST_MODE_KEY);
     } catch {}
     tokenBridgeInFlight.current = false;
+
+    // Smooth buffer to synchronize transition with LandingPage and Toast
+    setTimeout(() => {
+      setAuthAction(null);
+      showToast("Signed out successfully", "info");
+    }, 300);
   }, [showToast]);
 
   const continueAsGuest = useCallback(() => {
@@ -379,15 +403,16 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   }, []);
 
   const loading =
-    firebaseLoading &&
-    nextAuthStatus === "loading" &&
-    !cachedSession;
+    (firebaseLoading && nextAuthStatus === "loading" && !cachedSession) ||
+    (nextAuthStatus === "authenticated" && !user && !cachedSession);
 
   return (
     <AuthContext.Provider
       value={{
         user,
         loading,
+        authAction,
+        setAuthAction,
         isGuest,
         continueAsGuest,
         exitGuestMode,
@@ -398,6 +423,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      <AuthTransitionOverlay action={authAction} />
     </AuthContext.Provider>
   );
 }
