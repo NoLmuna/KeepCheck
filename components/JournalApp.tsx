@@ -366,34 +366,32 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           </div>
         </div>
 
-        {/* Right: + Save Spot, Light/Dark Toggle, My Lists & Stats Button, User Profile Avatar */}
+        {/* Right: Controls & User Profile */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Primary CTA: Save Spot */}
+          {/* Primary CTA: Save Spot (Desktop only; mobile uses prominent bottom nav) */}
           <button
             type="button"
             onClick={() => setLogModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 active:bg-amber-900 text-white text-xs font-bold rounded-lg shadow-xs hover:shadow-sm transition-all cursor-pointer"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 active:bg-amber-900 text-white text-xs font-bold rounded-lg shadow-xs hover:shadow-sm transition-all cursor-pointer"
             aria-label="Save a spot"
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Save Spot</span>
-            <span className="sm:hidden font-semibold">Save</span>
+            <span>Save Spot</span>
           </button>
 
           {/* Light / Dark Mode Toggle */}
           <ThemeToggle />
 
-          {/* My Lists & Stats Button */}
+          {/* My Lists & Stats Button (Desktop only; mobile uses bottom nav) */}
           <button
             type="button"
             onClick={() => setToolsOpen(true)}
             aria-label="Open my lists and stats"
             title="My Lists & Stats"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-stone-700 dark:text-stone-200 hover:text-stone-900 dark:hover:text-white bg-stone-100 dark:bg-stone-800 hover:bg-stone-200/80 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-700 transition-colors cursor-pointer"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-stone-700 dark:text-stone-200 hover:text-stone-900 dark:hover:text-white bg-stone-100 dark:bg-stone-800 hover:bg-stone-200/80 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-700 transition-colors cursor-pointer"
           >
             <Folder className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
-            <span className="hidden sm:inline">My Lists & Stats</span>
-            <span className="sm:hidden">Lists</span>
+            <span>My Lists & Stats</span>
           </button>
 
           {/* User Profile Avatar & Dropdown */}
@@ -474,12 +472,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                   </span>
                 </div>
 
-                {/* Theme Toggle row in menu */}
-                <div className="px-1 border-b border-stone-100 dark:border-stone-800 pb-1">
-                  <ThemeToggle showLabel className="w-full justify-start px-2 py-1.5 font-medium" />
-                </div>
-
-                {/* Menu Action: Backup & Export */}
+                {/* Menu Action: Backup & Data */}
                 <button
                   type="button"
                   onClick={() => {
@@ -489,20 +482,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                   className="w-full px-2.5 py-2 text-left font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-lg flex items-center gap-2 cursor-pointer transition-colors"
                 >
                   <Download className="w-4 h-4 text-stone-500 dark:text-stone-400" />
-                  <span>Backup & Export Data</span>
-                </button>
-
-                {/* Menu Action: Collections & Tags */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    setToolsOpen(true);
-                  }}
-                  className="w-full px-2.5 py-2 text-left font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-lg flex items-center gap-2 cursor-pointer transition-colors"
-                >
-                  <Folder className="w-4 h-4 text-stone-500 dark:text-stone-400" />
-                  <span>Collections & Insights</span>
+                  <span>Backup & Data</span>
                 </button>
 
                 {/* Sign Out Action */}

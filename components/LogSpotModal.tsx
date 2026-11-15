@@ -242,7 +242,7 @@ export default function LogSpotModal({
       );
 
       showToast(
-        mode === "wishlist" ? `🔖 Added "${savedSpot.name}" to Wishlist` : `★ Logged visit to "${savedSpot.name}"!`,
+        mode === "wishlist" ? `Added "${savedSpot.name}" to Wishlist` : `Saved visit to "${savedSpot.name}"`,
         "success"
       );
       onSaved(savedSpot);

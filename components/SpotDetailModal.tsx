@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/app/db";
 import { makeThumbnailFromBlob } from "@/utils/image";
-import { X, ImageOff, RefreshCw } from "lucide-react";
+import { X, ImageOff, RefreshCw, Check } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { syncSpotToFirestore } from "@/lib/offlineSync";
 import { useToast } from "@/lib/toast";
@@ -85,7 +85,7 @@ export default function SpotDetailModal({
       if (user) void db.spots.get(spotId).then(current => current && syncSpotToFirestore(user.uid, current)).catch(console.error);
 
       setRegenerated(true);
-      showToast("✓ Thumbnail updated successfully!", "success");
+      showToast("Thumbnail updated successfully", "success");
     } catch (err) {
       console.error("[KeepCheck] Thumbnail regeneration failed:", err);
       showToast("Could not regenerate thumbnail. Please try again.", "error");
@@ -148,8 +148,9 @@ export default function SpotDetailModal({
                 {regenerating ? "Regenerating…" : "Regenerate Thumbnail"}
               </button>
             ) : (
-              <p className="text-xs font-mono text-category-cafe font-bold animate-page-enter">
-                ✓ Thumbnail updated
+              <p className="text-xs font-mono text-category-cafe font-bold animate-page-enter flex items-center gap-1">
+                <Check className="h-3.5 w-3.5" />
+                <span>Thumbnail updated</span>
               </p>
             )}
           </div>

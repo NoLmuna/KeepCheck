@@ -213,7 +213,7 @@ export default function LocationPickerMap({
           </span>
         </div>
         <span className="text-[10px] text-text-secondary font-sans ml-2 shrink-0">
-          {currentCoords ? "✓ Pin placed" : "Click anywhere"}
+          {currentCoords ? "Pin placed" : "Click anywhere"}
         </span>
       </div>
     </div>

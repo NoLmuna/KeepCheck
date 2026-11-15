@@ -104,7 +104,7 @@ export default function LocationPickerModal({
         <div className="pt-4 mt-2 border-t border-text-secondary/10 flex items-center justify-between gap-3">
           <div className="text-xs font-mono text-text-secondary truncate hidden sm:block">
             {selectedCoords
-              ? resolved?.formattedAddress || `📍 ${selectedCoords.latitude.toFixed(5)}, ${selectedCoords.longitude.toFixed(5)}`
+              ? resolved?.formattedAddress || `${selectedCoords.latitude.toFixed(5)}, ${selectedCoords.longitude.toFixed(5)}`
               : "No pin selected"}
           </div>
 

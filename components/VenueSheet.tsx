@@ -230,7 +230,7 @@ export default function VenueSheet(p: Props) {
           });
         }
       }
-      showToast("📸 Photo uploaded and saved!", "success");
+      showToast("Photo uploaded and saved", "success");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to upload photo", "error");
     } finally {
@@ -345,7 +345,7 @@ export default function VenueSheet(p: Props) {
                         : "bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800"
                     }`}
                   >
-                    {isWishlist ? "🔖 Wishlist" : "✓ Visited"}
+                    {isWishlist ? "Wishlist" : "Visited"}
                   </span>
                 )}
                 {spot?.budgetTier && (

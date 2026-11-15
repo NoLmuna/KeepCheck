@@ -249,7 +249,7 @@ export default function JournalFilters({
               className="w-full py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-40"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-200" />
-              <span>✦ Pick For Me</span>
+              <span>Pick For Me</span>
             </button>
           </div>
         </div>

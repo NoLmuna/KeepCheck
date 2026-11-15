@@ -211,7 +211,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       if (firebaseUser) {
         if (!prevUserRef.current) {
           const name = firebaseUser.displayName ?? firebaseUser.email ?? "friend";
-          showToast(`👋 Welcome back, ${name}!`, "success");
+          showToast(`Welcome back, ${name}!`, "success");
         }
         prevUserRef.current = firebaseUser;
 
@@ -339,7 +339,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   // Clean sign out of both NextAuth and Firebase
   const signOut = useCallback(async () => {
-    showToast("👋 Signed out successfully", "info");
+    showToast("Signed out successfully", "info");
 
     try {
       await nextAuthSignOut({ redirect: false });

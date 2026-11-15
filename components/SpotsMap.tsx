@@ -41,13 +41,15 @@ import { nearestPois, discoveryBounds } from "@/lib/mapPerformance";
 import SpotCard from "./SpotCard";
 import { useToast } from "@/lib/toast";
 
-const categorySymbols: Record<string, string> = {
-  coffee: "☕",
-  restaurant: "🍴",
-  bakery: "🥐",
-  bar: "🍷",
-  other: "📍",
+const categorySvgs: Record<string, string> = {
+  coffee: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h12Z"/><path d="M6 2v2"/><line x1="17" x2="21" y1="12" y2="12"/><line x1="17" x2="21" y1="16" y2="16"/></svg>`,
+  restaurant: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2v6a3 3 0 0 1-3 3 3 3 0 0 1-3-3V2"/><path d="M15 2v10"/><path d="M12 2v6"/><path d="M21 15v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5"/><line x1="2" x2="22" y1="15" y2="15"/></svg>`,
+  bakery: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 16.5-1-2.5a3 3 0 0 1 .5-3L9 6l3 2.5 3-2.5 5 5a3 3 0 0 1 .5 3l-1 2.5"/><path d="M4 14h16"/></svg>`,
+  bar: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 22h8"/><path d="M12 15v7"/><path d="M12 15a5 5 0 0 0 5-5V2H7v8a5 5 0 0 0 5 5Z"/></svg>`,
+  other: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
 };
+
+const bookmarkSvg = `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>`;
 
 interface Props {
   navigation?: ReactNode;
@@ -340,17 +342,17 @@ export default function SpotsMap({
       let entry = markers.current.get(venue.key);
       const isSaved = !!venue.record;
       const isWish = venue.record?.status === "wishlist";
-      const sym = categorySymbols[venue.category] ?? "📍";
+      const iconSvg = categorySvgs[venue.category] ?? categorySvgs.other;
 
       const html = isWish
-        ? `<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md border-2 border-white ring-2 ring-indigo-300 text-xs font-bold transition-transform hover:scale-110">🔖</div>`
+        ? `<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md border-2 border-white ring-2 ring-indigo-300 transition-transform hover:scale-110">${bookmarkSvg}</div>`
         : isSaved
-          ? `<div class="w-9 h-9 rounded-full bg-amber-600 text-white flex items-center justify-center shadow-md border-2 border-white ring-2 ring-amber-300 text-xs font-bold transition-transform hover:scale-110 gap-0.5"><span>${sym}</span>${
+          ? `<div class="w-9 h-9 rounded-full bg-amber-600 text-white flex items-center justify-center shadow-md border-2 border-white ring-2 ring-amber-300 text-xs font-bold transition-transform hover:scale-110 gap-0.5"><span>${iconSvg}</span>${
               venue.record?.overallRating
                 ? `<span class="text-[10px] font-mono">${venue.record.overallRating.toFixed(1)}</span>`
                 : ""
             }</div>`
-          : `<div class="w-7 h-7 rounded-full bg-stone-100 text-stone-800 flex items-center justify-center shadow-xs border border-stone-300 text-xs transition-transform hover:scale-110">${sym}</div>`;
+          : `<div class="w-7 h-7 rounded-full bg-stone-100 text-stone-700 flex items-center justify-center shadow-xs border border-stone-300 transition-transform hover:scale-110">${iconSvg}</div>`;
 
       if (!entry) {
         const marker = L.marker([venue.location.lat, venue.location.lng], {
