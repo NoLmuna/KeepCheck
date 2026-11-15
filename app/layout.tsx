@@ -36,7 +36,7 @@ export default function RootLayout({
             __html: `(function(){
   try {
     var stored = localStorage.getItem("keepcheck-theme");
-    var isDark = stored ? stored === "dark" : true;
+    var isDark = stored === "dark";
     if (isDark) {
       document.documentElement.classList.add("dark");
     } else {

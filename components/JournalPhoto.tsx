@@ -6,10 +6,12 @@ const JournalPhoto = memo(function JournalPhoto({
   id,
   url,
   alt,
+  className = "h-full w-full object-cover",
 }: {
   id?: string;
   url?: string;
   alt: string;
+  className?: string;
 }) {
   const photo = useLiveQuery(
     () => (id ? db.photoQueue.get(id) : undefined),
@@ -38,7 +40,7 @@ const JournalPhoto = memo(function JournalPhoto({
       decoding="async"
       src={src}
       alt={alt}
-      className="h-28 w-36 shrink-0 rounded-xl object-cover"
+      className={className}
     />
   ) : (
     <span className="text-xs">Photo unavailable on this device</span>

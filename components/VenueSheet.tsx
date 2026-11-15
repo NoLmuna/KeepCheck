@@ -23,6 +23,7 @@ import {
   Check,
   Calendar,
   Camera,
+  Image as ImageIcon,
 } from "lucide-react";
 import { db } from "@/app/db";
 import {
@@ -34,6 +35,7 @@ import {
 import {
   formatDistance,
   haversine,
+  humanReadableLocation,
   type Coordinates,
   type Venue,
 } from "@/lib/geo";
@@ -45,6 +47,7 @@ import {
 } from "@/lib/journal";
 import { compressVisitPhoto, shareCard } from "@/lib/journalMedia";
 import JournalPhoto from "./JournalPhoto";
+import { useToast } from "@/lib/toast";
 
 export type SaveVenue = (
   venue: Venue,
@@ -91,6 +94,7 @@ function CategoryIcon({
 }
 
 export default function VenueSheet(p: Props) {
+  const { showToast } = useToast();
   const [expanded, setExpanded] = useState(!!p.initialAction);
   const current = useLiveQuery(
     () => (p.venue.record ? db.venues.get(p.venue.record.id) : undefined),
@@ -136,12 +140,14 @@ export default function VenueSheet(p: Props) {
     [items, setItems] = useState(""),
     [spend, setSpend] = useState("");
   const [photos, setPhotos] = useState<VisitDraft["photos"]>([]),
+    [photoPreviews, setPhotoPreviews] = useState<string[]>([]),
     [processing, setProcessing] = useState(false),
     [saving, setSaving] = useState(false),
     [message, setMessage] = useState("");
   const [duplicate, setDuplicate] = useState<Spot | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const quickPhotoInputRef = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -163,6 +169,75 @@ export default function VenueSheet(p: Props) {
       ? { budgetTier: budget as Spot["budgetTier"] }
       : { budgetTier: undefined }),
   };
+
+  // Quick Direct Photo Upload handler when viewing a saved spot
+  async function handleQuickPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || !files.length || !spot) return;
+
+    setProcessing(true);
+    try {
+      const now = Date.now();
+      for (const file of Array.from(files)) {
+        const compressed = await compressVisitPhoto(file);
+        const photoId = crypto.randomUUID();
+
+        // Find latest visit or create a visit entry for this photo
+        const latestVisit = visits[0];
+        let targetVisitId = latestVisit?.id;
+
+        if (!targetVisitId) {
+          targetVisitId = crypto.randomUUID();
+          await db.visitLogs.add({
+            id: targetVisitId,
+            spotId: spot.id,
+            userId: spot.userId,
+            visitedAt: now,
+            rating: spot.overallRating ?? 5,
+            itemsOrdered: [],
+            photoUrls: [],
+            localPhotoIds: [photoId],
+            createdAt: now,
+            updatedAt: now,
+            syncStatus: "pending",
+          });
+        } else {
+          await db.visitLogs.update(targetVisitId, {
+            localPhotoIds: [...(latestVisit.localPhotoIds ?? []), photoId],
+            updatedAt: now,
+            syncStatus: "pending",
+          });
+        }
+
+        // Add to photoQueue
+        await db.photoQueue.add({
+          id: photoId,
+          spotId: spot.id,
+          visitLogId: targetVisitId,
+          blob: compressed.blob,
+          thumbnail: compressed.thumbnail,
+          status: "pending",
+          createdAt: now,
+          userId: spot.userId,
+        });
+
+        // Set cover photo if not present
+        if (!spot.localCoverPhotoId) {
+          await db.venues.update(spot.id, {
+            localCoverPhotoId: photoId,
+            updatedAt: now,
+            syncStatus: "pending",
+          });
+        }
+      }
+      showToast("📸 Photo uploaded and saved!", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to upload photo", "error");
+    } finally {
+      setProcessing(false);
+      e.target.value = "";
+    }
+  }
 
   async function save(duplicateId?: string) {
     if (saving || processing) return;
@@ -187,6 +262,7 @@ export default function VenueSheet(p: Props) {
       setAction(null);
       setDuplicate(null);
       setPhotos([]);
+      setPhotoPreviews([]);
       setNotes("");
       setItems("");
       setSpend("");
@@ -205,6 +281,14 @@ export default function VenueSheet(p: Props) {
   const { lat, lng } = p.venue.location;
   const isWishlist = spot?.status === "wishlist";
 
+  // Collect all photos across all visits for this spot
+  const allPhotoIds = Array.from(
+    new Set([
+      ...(spot?.localCoverPhotoId ? [spot.localCoverPhotoId] : []),
+      ...visits.flatMap((v) => v.localPhotoIds ?? []),
+    ])
+  );
+
   return (
     <section
       role="region"
@@ -217,7 +301,7 @@ export default function VenueSheet(p: Props) {
       }}
       data-expanded={expanded}
       data-embedded={!!p.embedded}
-      className={`venue-detail flex flex-col bg-white text-stone-900 border-stone-200 ${
+      className={`venue-detail flex flex-col bg-white dark:bg-[#1c1612] text-stone-900 dark:text-stone-100 border-stone-200 dark:border-stone-800 ${
         p.embedded ? "h-full w-full border-0" : "rounded-t-2xl sm:rounded-2xl shadow-xl"
       }`}
     >
@@ -230,19 +314,19 @@ export default function VenueSheet(p: Props) {
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
         >
-          <div className="w-12 h-1.5 rounded-full bg-stone-300" />
+          <div className="w-12 h-1.5 rounded-full bg-stone-300 dark:bg-stone-700" />
         </button>
       )}
 
       {/* Header Bar */}
-      <div className="p-4 border-b border-stone-200/80 bg-[#F8F6F2] shrink-0">
+      <div className="p-4 border-b border-stone-200/80 dark:border-stone-800 bg-[#F8F6F2] dark:bg-[#120e0b] shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2.5 min-w-0">
             <div
               className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
                 isWishlist
-                  ? "bg-indigo-100 text-indigo-800"
-                  : "bg-amber-100 text-amber-900"
+                  ? "bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-200"
+                  : "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200"
               }`}
             >
               <CategoryIcon category={p.venue.category} className="w-5 h-5" />
@@ -250,22 +334,22 @@ export default function VenueSheet(p: Props) {
 
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-600 bg-stone-200/60 px-1.5 py-0.5 rounded">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 bg-stone-200/60 dark:bg-stone-800 px-1.5 py-0.5 rounded">
                   {p.venue.category}
                 </span>
                 {spot?.status && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                       isWishlist
-                        ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                        : "bg-amber-50 text-amber-900 border border-amber-200"
+                        ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                        : "bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800"
                     }`}
                   >
                     {isWishlist ? "🔖 Wishlist" : "✓ Visited"}
                   </span>
                 )}
                 {spot?.budgetTier && (
-                  <span className="text-[10px] font-bold text-stone-600 bg-stone-200/60 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-bold text-stone-600 dark:text-stone-400 bg-stone-200/60 dark:bg-stone-800 px-1.5 py-0.5 rounded">
                     {spot.budgetTier}
                   </span>
                 )}
@@ -274,16 +358,16 @@ export default function VenueSheet(p: Props) {
               <h2
                 ref={heading}
                 tabIndex={-1}
-                className="text-lg sm:text-xl font-serif font-bold text-stone-900 mt-1 truncate outline-none"
+                className="text-lg sm:text-xl font-serif font-bold text-stone-900 dark:text-white mt-1 truncate outline-none"
               >
                 {spot?.name ?? p.venue.name}
               </h2>
 
-              <p className="text-xs text-stone-500 truncate mt-0.5 flex items-center gap-1">
+              <p className="text-xs text-stone-500 dark:text-stone-400 truncate mt-0.5 flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-                <span>{p.venue.location.locality || p.venue.location.formattedAddress}</span>
+                <span>{humanReadableLocation(p.venue.location, spot?.locationMissing)}</span>
                 {p.position && !spot?.locationMissing && (
-                  <span className="font-semibold text-stone-700">
+                  <span className="font-semibold text-stone-700 dark:text-stone-300">
                     {" "}· {formatDistance(haversine(p.position, p.venue.location))} away
                   </span>
                 )}
@@ -293,7 +377,7 @@ export default function VenueSheet(p: Props) {
 
           <div className="flex items-center gap-1.5 shrink-0">
             {spot?.overallRating && (
-              <div className="flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full text-xs font-bold">
+              <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full text-xs font-bold">
                 <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
                 <span>{spot.overallRating.toFixed(1)}</span>
               </div>
@@ -302,7 +386,7 @@ export default function VenueSheet(p: Props) {
               type="button"
               aria-label="Close venue details"
               onClick={p.onClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 hover:text-stone-800 hover:bg-stone-200/60 transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-white hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4 md:inline hidden" />
               <X className="w-4 h-4 md:hidden inline" />
@@ -313,30 +397,82 @@ export default function VenueSheet(p: Props) {
 
       {/* Scrollable Body */}
       <div className="venue-detail-body flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Cover Photo if available */}
-        {(spot?.localCoverPhotoId || spot?.coverPhotoUrl) && (
-          <div className="rounded-xl overflow-hidden border border-stone-200 shadow-xs max-h-48">
-            <JournalPhoto
-              id={spot.localCoverPhotoId}
-              url={spot.coverPhotoUrl}
-              alt={`${spot.name} cover`}
-            />
-          </div>
-        )}
+        {/* Photo Gallery & Direct Image Upload */}
+        <div className="space-y-2">
+          {allPhotoIds.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Photos ({allPhotoIds.length})</span>
+                </h4>
+
+                {spot && (
+                  <button
+                    type="button"
+                    onClick={() => quickPhotoInputRef.current?.click()}
+                    disabled={processing}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Photo</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {allPhotoIds.map((id) => (
+                  <div key={id} className="w-28 h-24 rounded-xl overflow-hidden border border-stone-200 dark:border-stone-700 shrink-0 bg-stone-100 dark:bg-stone-800">
+                    <JournalPhoto id={id} alt={spot?.name ?? "Venue photo"} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            spot && (
+              <div className="p-3 bg-stone-50 dark:bg-[#251d18] rounded-xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-stone-600 dark:text-stone-400">
+                  <Camera className="w-4 h-4 text-amber-600" />
+                  <span>No photos yet for this venue</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => quickPhotoInputRef.current?.click()}
+                  disabled={processing}
+                  className="px-2.5 py-1 bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold rounded-lg border border-stone-200 dark:border-stone-700 transition-colors cursor-pointer shadow-2xs"
+                >
+                  + Upload Photo
+                </button>
+              </div>
+            )
+          )}
+
+          {/* Hidden Quick Photo Input */}
+          <input
+            ref={quickPhotoInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleQuickPhotoUpload}
+            className="hidden"
+          />
+        </div>
 
         {/* Action Row: Routes, Navigation & Quick Log */}
         {!spot?.locationMissing && (
-          <div className="p-3 bg-[#F8F6F2] rounded-xl border border-stone-200/80 space-y-2.5">
+          <div className="p-3 bg-[#F8F6F2] dark:bg-[#1a1410] rounded-xl border border-stone-200/80 dark:border-stone-800 space-y-2.5">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               {/* OSRM In-App Route Button */}
               {p.onRoute && (
                 <div className="flex items-center gap-1.5">
-                  <div className="inline-flex rounded-lg border border-stone-300 bg-white p-0.5 text-xs font-medium">
+                  <div className="inline-flex rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 p-0.5 text-xs font-medium">
                     <button
                       type="button"
                       onClick={() => p.onMode?.("foot")}
                       className={`px-2 py-1 rounded-md flex items-center gap-1 cursor-pointer ${
-                        p.routeMode === "foot" ? "bg-amber-100 text-amber-900 font-bold" : "text-stone-600"
+                        p.routeMode === "foot"
+                          ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 font-bold"
+                          : "text-stone-600 dark:text-stone-400"
                       }`}
                     >
                       <Footprints className="w-3.5 h-3.5" />
@@ -346,7 +482,9 @@ export default function VenueSheet(p: Props) {
                       type="button"
                       onClick={() => p.onMode?.("driving")}
                       className={`px-2 py-1 rounded-md flex items-center gap-1 cursor-pointer ${
-                        p.routeMode === "driving" ? "bg-amber-100 text-amber-900 font-bold" : "text-stone-600"
+                        p.routeMode === "driving"
+                          ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 font-bold"
+                          : "text-stone-600 dark:text-stone-400"
                       }`}
                     >
                       <Car className="w-3.5 h-3.5" />
@@ -363,7 +501,7 @@ export default function VenueSheet(p: Props) {
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                       p.showRoute
                         ? "bg-amber-600 text-white border-amber-700"
-                        : "bg-white text-stone-800 border-stone-300 hover:bg-stone-50"
+                        : "bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-100 border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700"
                     }`}
                   >
                     {p.showRoute ? "Hide Route" : "Show Route"}
@@ -380,9 +518,9 @@ export default function VenueSheet(p: Props) {
                   href={`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=${
                     p.routeMode === "driving" ? "driving" : "walking"
                   }`}
-                  className="px-2.5 py-1.5 bg-white text-stone-800 text-xs font-semibold rounded-lg border border-stone-300 hover:bg-stone-50 transition-colors flex items-center gap-1"
+                  className="px-2.5 py-1.5 bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-semibold rounded-lg border border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors flex items-center gap-1"
                 >
-                  <Navigation className="w-3 h-3 text-amber-700" />
+                  <Navigation className="w-3 h-3 text-amber-700 dark:text-amber-400" />
                   <span>Google Maps ↗</span>
                 </a>
                 <a
@@ -390,7 +528,7 @@ export default function VenueSheet(p: Props) {
                   target="_blank"
                   rel="noopener noreferrer"
                   href={`https://waze.com/ul?ll=${lat},${lng}&navigate=yes`}
-                  className="px-2.5 py-1.5 bg-white text-stone-800 text-xs font-semibold rounded-lg border border-stone-300 hover:bg-stone-50 transition-colors flex items-center gap-1"
+                  className="px-2.5 py-1.5 bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-semibold rounded-lg border border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors flex items-center gap-1"
                 >
                   <span>Waze ↗</span>
                 </a>
@@ -398,7 +536,7 @@ export default function VenueSheet(p: Props) {
             </div>
 
             {p.routeStatus && (
-              <p role="status" className="text-[11px] font-medium text-amber-800 bg-amber-50 p-1.5 rounded border border-amber-200">
+              <p role="status" className="text-[11px] font-medium text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 p-1.5 rounded border border-amber-200 dark:border-amber-800">
                 {p.routeStatus}
               </p>
             )}
@@ -410,21 +548,21 @@ export default function VenueSheet(p: Props) {
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              aria-label={spot?.status === "wishlist" ? "Mark as Visited" : "Log Visit"}
+              aria-label={spot ? (spot.status === "wishlist" ? "Mark as Visited" : "Log Visit") : "Log a Visit"}
               onClick={() => setAction("visit")}
               className="py-2.5 px-3 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              <span>{spot?.status === "wishlist" ? "Mark as Visited" : "+ Log Visit"}</span>
+              <span>{spot ? (spot.status === "wishlist" ? "Mark as Visited" : "Log a Visit") : "Log a Visit"}</span>
             </button>
 
             <button
               type="button"
-              aria-label={spot ? "Edit venue" : "Save to Wishlist"}
+              aria-label={spot ? "Edit venue" : "Save to Want to Try"}
               onClick={() => setAction(spot ? "edit" : "wishlist")}
               className={`py-2.5 px-3 text-xs font-bold rounded-xl border transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                 spot
-                  ? "bg-white text-stone-700 border-stone-300 hover:bg-stone-50"
+                  ? "bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700"
                   : "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent"
               }`}
             >
@@ -436,7 +574,7 @@ export default function VenueSheet(p: Props) {
               ) : (
                 <>
                   <Bookmark className="w-3.5 h-3.5" />
-                  <span>Save to Wishlist</span>
+                  <span>Save to Want to Try</span>
                 </>
               )}
             </button>
@@ -457,7 +595,7 @@ export default function VenueSheet(p: Props) {
                         .map((m) => `Must order: ${m.name}`),
                     ]).catch(() => setMessage("Could not create share card"));
                   }}
-                  className="flex-1 py-1.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex-1 py-1.5 px-3 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Share2 className="w-3.5 h-3.5" />
                   <span>Share Card</span>
@@ -467,7 +605,7 @@ export default function VenueSheet(p: Props) {
                   type="button"
                   aria-label="Delete venue"
                   onClick={() => setConfirmDelete(true)}
-                  className="py-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="py-1.5 px-3 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-700 dark:text-red-400 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-red-200 dark:border-red-900"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Delete</span>
@@ -479,8 +617,8 @@ export default function VenueSheet(p: Props) {
 
         {/* Delete Confirmation Card */}
         {confirmDelete && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-2">
-            <p className="text-xs text-red-800 font-semibold">
+          <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl space-y-2">
+            <p className="text-xs text-red-800 dark:text-red-300 font-semibold">
               Delete this venue and its visit history? This cannot be undone.
             </p>
             <div className="flex items-center gap-2">
@@ -500,7 +638,7 @@ export default function VenueSheet(p: Props) {
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="px-3 py-1.5 text-stone-600 hover:text-stone-900 text-xs"
+                className="px-3 py-1.5 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white text-xs cursor-pointer"
               >
                 Cancel
               </button>
@@ -511,14 +649,14 @@ export default function VenueSheet(p: Props) {
         {/* Vibe Tags Pills */}
         {spot?.vibeTags && spot.vibeTags.length > 0 && !action && (
           <div>
-            <h4 className="text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
+            <h4 className="text-[11px] font-bold text-stone-600 dark:text-stone-400 uppercase tracking-wider mb-1.5">
               Vibes & Amenities
             </h4>
             <div className="flex flex-wrap gap-1">
               {spot.vibeTags.map((tag) => (
                 <span
                   key={tag}
-                  className="px-2.5 py-1 bg-stone-100 text-stone-700 rounded-lg text-xs font-medium capitalize"
+                  className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded-lg text-xs font-medium capitalize"
                 >
                   {tag.replaceAll("-", " ")}
                 </span>
@@ -529,10 +667,10 @@ export default function VenueSheet(p: Props) {
 
         {/* Menu Memory Section */}
         {!action && (
-          <div className="p-3.5 bg-amber-50/50 rounded-xl border border-amber-200/60 space-y-2.5">
+          <div className="p-3.5 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200/60 dark:border-amber-800/60 space-y-2.5">
             <div className="flex items-center justify-between">
-              <h4 className="font-serif font-bold text-xs uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
-                <Utensils className="w-3.5 h-3.5 text-amber-700" />
+              <h4 className="font-serif font-bold text-xs uppercase tracking-wider text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
+                <Utensils className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
                 <span>Menu Memory</span>
               </h4>
             </div>
@@ -542,7 +680,7 @@ export default function VenueSheet(p: Props) {
                 {spot.menuItems.map((m) => (
                   <div
                     key={m.id}
-                    className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-amber-200/50 text-xs"
+                    className="flex items-center justify-between bg-white dark:bg-stone-800 px-2.5 py-1.5 rounded-lg border border-amber-200/50 dark:border-stone-700 text-xs"
                   >
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
@@ -550,16 +688,16 @@ export default function VenueSheet(p: Props) {
                           m.verdict === "must-order" ? "bg-emerald-500" : "bg-stone-400"
                         }`}
                       />
-                      <span className="font-semibold text-stone-900 truncate">{m.name}</span>
+                      <span className="font-semibold text-stone-900 dark:text-stone-100 truncate">{m.name}</span>
                       {m.price !== undefined && (
-                        <span className="text-stone-500">· ₱{m.price}</span>
+                        <span className="text-stone-500 dark:text-stone-400">· ₱{m.price}</span>
                       )}
                     </div>
                     <span
                       className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                         m.verdict === "must-order"
-                          ? "bg-amber-100 text-amber-900"
-                          : "bg-stone-100 text-stone-600"
+                          ? "bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200"
+                          : "bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300"
                       }`}
                     >
                       {m.verdict === "must-order" ? "Must Order" : "Skip"}
@@ -568,22 +706,22 @@ export default function VenueSheet(p: Props) {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-stone-500 italic">No menu notes recorded yet.</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 italic">No menu notes recorded yet.</p>
             )}
 
             {/* Quick Add Menu Item Inline */}
-            <div className="pt-2 border-t border-amber-200/40 flex items-center gap-1.5">
+            <div className="pt-2 border-t border-amber-200/40 dark:border-stone-700 flex items-center gap-1.5">
               <input
                 type="text"
                 placeholder="Add dish/drink…"
                 value={menuName}
                 onChange={(e) => setMenuName(e.target.value)}
-                className="flex-1 h-8 px-2.5 rounded-lg border border-stone-300 bg-white text-xs outline-none focus:border-amber-600"
+                className="flex-1 h-8 px-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
               />
               <select
                 value={verdict}
                 onChange={(e) => setVerdict(e.target.value as "must-order" | "skip")}
-                className="h-8 px-2 rounded-lg border border-stone-300 bg-white text-xs text-stone-800"
+                className="h-8 px-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-200"
               >
                 <option value="must-order">Must order</option>
                 <option value="skip">Skip</option>
@@ -614,20 +752,20 @@ export default function VenueSheet(p: Props) {
         {/* Visit History Timeline */}
         {!action && (
           <div className="space-y-3 pt-2">
-            <h4 className="font-serif font-bold text-sm text-stone-900 flex items-center justify-between">
+            <h4 className="font-serif font-bold text-sm text-stone-900 dark:text-white flex items-center justify-between">
               <span>Visit History</span>
-              <span className="text-xs font-sans text-stone-500">
+              <span className="text-xs font-sans text-stone-500 dark:text-stone-400">
                 {visits.length} {visits.length === 1 ? "visit" : "visits"}
               </span>
             </h4>
 
             {visits.length > 0 ? (
-              <div className="space-y-3 relative pl-3 border-l-2 border-amber-200">
+              <div className="space-y-3 relative pl-3 border-l-2 border-amber-200 dark:border-amber-800">
                 {visits.map((v) => (
                   <div key={v.id} className="relative text-xs space-y-1">
-                    <div className="absolute -left-[19px] top-1 w-3 h-3 rounded-full bg-amber-600 border-2 border-white ring-2 ring-amber-200" />
+                    <div className="absolute -left-[19px] top-1 w-3 h-3 rounded-full bg-amber-600 border-2 border-white dark:border-stone-900 ring-2 ring-amber-200 dark:ring-amber-900" />
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-stone-900 flex items-center gap-1">
+                      <span className="font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-stone-400" />
                         {new Date(v.visitedAt).toLocaleDateString(undefined, {
                           month: "short",
@@ -635,29 +773,29 @@ export default function VenueSheet(p: Props) {
                           year: "numeric",
                         })}
                       </span>
-                      <div className="flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 px-1.5 py-0.5 rounded font-bold text-[11px]">
+                      <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded font-bold text-[11px]">
                         <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
                         <span>{v.rating}</span>
                       </div>
                     </div>
 
                     {v.totalSpend !== undefined && (
-                      <p className="text-stone-600 font-medium">Spent: ₱{v.totalSpend}</p>
+                      <p className="text-stone-600 dark:text-stone-300 font-medium">Spent: ₱{v.totalSpend}</p>
                     )}
 
                     {v.itemsOrdered && v.itemsOrdered.length > 0 && (
-                      <p className="text-stone-700">
+                      <p className="text-stone-700 dark:text-stone-300">
                         <span className="font-semibold">Ordered:</span> {v.itemsOrdered.join(", ")}
                       </p>
                     )}
 
-                    {v.notes && <p className="text-stone-600 italic">“{v.notes}”</p>}
+                    {v.notes && <p className="text-stone-600 dark:text-stone-400 italic">“{v.notes}”</p>}
 
                     {/* Photos in visit */}
                     {v.localPhotoIds.length > 0 && (
                       <div className="flex items-center gap-1.5 pt-1 overflow-x-auto">
                         {v.localPhotoIds.map((id, i) => (
-                          <div key={id} className="w-14 h-14 rounded-lg overflow-hidden border border-stone-200 shrink-0">
+                          <div key={id} className="w-16 h-14 rounded-lg overflow-hidden border border-stone-200 dark:border-stone-700 shrink-0 bg-stone-100 dark:bg-stone-800">
                             <JournalPhoto
                               id={id}
                               url={v.photoUrls[i]}
@@ -671,7 +809,7 @@ export default function VenueSheet(p: Props) {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-stone-500 italic">No past visits recorded yet.</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 italic">No past visits recorded yet.</p>
             )}
           </div>
         )}
@@ -683,10 +821,10 @@ export default function VenueSheet(p: Props) {
               e.preventDefault();
               void save();
             }}
-            className="p-4 bg-stone-50 rounded-xl border border-stone-200 space-y-3.5"
+            className="p-4 bg-stone-50 dark:bg-[#251d18] rounded-xl border border-stone-200 dark:border-stone-700 space-y-3.5"
           >
-            <div className="flex items-center justify-between pb-2 border-b border-stone-200">
-              <h3 className="font-serif font-bold text-sm text-stone-900">
+            <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-700">
+              <h3 className="font-serif font-bold text-sm text-stone-900 dark:text-white">
                 {action === "visit"
                   ? "Log a Visit"
                   : action === "wishlist"
@@ -696,14 +834,14 @@ export default function VenueSheet(p: Props) {
               <button
                 type="button"
                 onClick={() => setAction(null)}
-                className="text-xs text-stone-500 hover:text-stone-800"
+                className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 cursor-pointer"
               >
                 Cancel
               </button>
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                 Venue Name *
               </label>
               <input
@@ -711,20 +849,20 @@ export default function VenueSheet(p: Props) {
                 aria-label="Venue name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full h-9 px-3 rounded-lg border border-stone-300 bg-white text-xs outline-none focus:border-amber-600"
+                className="w-full h-9 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                   Category
                 </label>
                 <select
                   aria-label="Venue category"
                   value={category}
                   onChange={(e) => setCategory(e.target.value as Spot["category"])}
-                  className="w-full h-9 px-2 rounded-lg border border-stone-300 bg-white text-xs"
+                  className="w-full h-9 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100"
                 >
                   {["coffee", "restaurant", "bakery", "bar", "other"].map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -733,14 +871,14 @@ export default function VenueSheet(p: Props) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                   Budget
                 </label>
                 <select
                   aria-label="Budget tier"
                   value={budget}
                   onChange={(e) => setBudget(e.target.value as typeof budget)}
-                  className="w-full h-9 px-2 rounded-lg border border-stone-300 bg-white text-xs"
+                  className="w-full h-9 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100"
                 >
                   <option value="">Not set</option>
                   {["₱", "₱₱", "₱₱₱"].map((b) => (
@@ -755,7 +893,7 @@ export default function VenueSheet(p: Props) {
               <>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                       Visited At
                     </label>
                     <input
@@ -764,12 +902,12 @@ export default function VenueSheet(p: Props) {
                       aria-label="Visit date"
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="w-full h-9 px-2 rounded-lg border border-stone-300 bg-white text-xs"
+                      className="w-full h-9 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                       Rating (1–5)
                     </label>
                     <div className="flex items-center gap-1 h-9">
@@ -782,7 +920,7 @@ export default function VenueSheet(p: Props) {
                         >
                           <Star
                             className={`w-5 h-5 ${
-                              rating >= s ? "fill-amber-500 text-amber-500" : "text-stone-300"
+                              rating >= s ? "fill-amber-500 text-amber-500" : "text-stone-300 dark:text-stone-600"
                             }`}
                           />
                         </button>
@@ -792,7 +930,7 @@ export default function VenueSheet(p: Props) {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                     Items Ordered
                   </label>
                   <input
@@ -800,12 +938,12 @@ export default function VenueSheet(p: Props) {
                     placeholder="Separate with commas (e.g. Latte, Croissant)"
                     value={items}
                     onChange={(e) => setItems(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-stone-300 bg-white text-xs outline-none"
+                    className="w-full h-9 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                     Total Spend (₱)
                   </label>
                   <input
@@ -816,12 +954,12 @@ export default function VenueSheet(p: Props) {
                     placeholder="e.g. 450"
                     value={spend}
                     onChange={(e) => setSpend(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-stone-300 bg-white text-xs outline-none"
+                    className="w-full h-9 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                     Notes
                   </label>
                   <textarea
@@ -830,50 +968,71 @@ export default function VenueSheet(p: Props) {
                     placeholder="What did you think of the coffee and vibe?"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    className="w-full p-2.5 rounded-lg border border-stone-300 bg-white text-xs outline-none resize-none"
+                    className="w-full p-2.5 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none resize-none"
                   />
                 </div>
 
+                {/* Photo Upload in Form */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
-                    Photos
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
+                    Upload Photos (Compressed WebP)
                   </label>
-                  <input
-                    aria-label="Visit photos"
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    disabled={processing}
-                    onChange={async (e) => {
-                      const files = Array.from(e.target.files ?? []);
-                      setProcessing(true);
-                      try {
-                        const compressed: VisitDraft["photos"] = [];
-                        for (const f of files.slice(0, 6))
-                          compressed.push(await compressVisitPhoto(f));
-                        if (mounted.current)
-                          setPhotos((old) => [...old, ...compressed].slice(0, 6));
-                      } catch {
-                        if (mounted.current)
-                          setMessage("Could not process photo.");
-                      } finally {
-                        if (mounted.current) setProcessing(false);
-                      }
-                    }}
-                    className="text-xs text-stone-600"
-                  />
-                  {photos.length > 0 && (
-                    <p className="text-[11px] text-amber-800 mt-1">
-                      {photos.length} photo(s) attached
-                    </p>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {photoPreviews.map((preview, i) => (
+                      <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-stone-200 dark:border-stone-700 group">
+                        <img src={preview} alt="" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPhotos((prev) => prev.filter((_, idx) => idx !== i));
+                            setPhotoPreviews((prev) => prev.filter((_, idx) => idx !== i));
+                          }}
+                          className="absolute top-1 right-1 w-5 h-5 bg-black/70 text-white rounded-full flex items-center justify-center hover:bg-black"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <label className="w-16 h-16 rounded-xl border-2 border-dashed border-stone-300 dark:border-stone-600 hover:border-amber-600 flex flex-col items-center justify-center gap-1 text-stone-500 dark:text-stone-400 cursor-pointer bg-white dark:bg-stone-800 transition-colors">
+                      <Camera className="w-5 h-5" />
+                      <span className="text-[9px] font-semibold">Upload</span>
+                      <input
+                        aria-label="Visit photos"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={processing}
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files ?? []);
+                          setProcessing(true);
+                          try {
+                            for (const f of files.slice(0, 6)) {
+                              const compressed = await compressVisitPhoto(f);
+                              setPhotos((prev) => [...prev, compressed]);
+                              setPhotoPreviews((prev) => [
+                                ...prev,
+                                URL.createObjectURL(compressed.thumbnail),
+                              ]);
+                            }
+                          } catch {
+                            setMessage("Could not process photo.");
+                          } finally {
+                            setProcessing(false);
+                            e.target.value = "";
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                 </div>
               </>
             )}
 
             {/* Vibe Tags selector */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1.5">
                 Vibes & Amenities
               </label>
               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
@@ -889,8 +1048,8 @@ export default function VenueSheet(p: Props) {
                     }
                     className={`px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer capitalize ${
                       vibes.includes(v)
-                        ? "bg-amber-100 text-amber-900 border-amber-300 font-semibold"
-                        : "bg-white text-stone-600 border-stone-200"
+                        ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800 font-semibold"
+                        : "bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
                     }`}
                   >
                     {v.replaceAll("-", " ")}
@@ -901,8 +1060,8 @@ export default function VenueSheet(p: Props) {
 
             {/* Duplicate Notice */}
             {duplicate && (
-              <div role="alert" className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-2">
-                <p className="font-semibold text-amber-900">
+              <div role="alert" className="p-3 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-xl text-xs space-y-2">
+                <p className="font-semibold text-amber-900 dark:text-amber-200">
                   You already saved {duplicate.name} — log a new visit to it?
                 </p>
                 <div className="flex items-center gap-2">
@@ -919,7 +1078,7 @@ export default function VenueSheet(p: Props) {
                   <button
                     type="button"
                     onClick={() => setDuplicate(null)}
-                    className="text-xs text-stone-600"
+                    className="text-xs text-stone-600 dark:text-stone-400"
                   >
                     Cancel
                   </button>
@@ -927,11 +1086,11 @@ export default function VenueSheet(p: Props) {
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-700">
               <button
                 type="button"
                 onClick={() => setAction(null)}
-                className="px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900"
+                className="px-3 py-1.5 text-xs text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white"
               >
                 Cancel
               </button>
@@ -947,7 +1106,7 @@ export default function VenueSheet(p: Props) {
         )}
 
         {message && (
-          <p role="status" className="text-xs text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
+          <p role="status" className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 p-2 rounded-lg border border-amber-200 dark:border-amber-800">
             {message}
           </p>
         )}

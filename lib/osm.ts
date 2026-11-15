@@ -1,8 +1,11 @@
 import type { LineString } from "geojson";
 import type { SpotLocation } from "@/app/db";
+import { db } from "@/app/db";
+import type { Spot } from "./models";
 import {
   categoryFor,
   coordinateLabel,
+  isCoordinateString,
   type Coordinates,
   type Venue,
 } from "./geo";
@@ -269,3 +272,37 @@ export async function fetchRoute(
     ? route
     : null;
 }
+
+export async function autoResolveLegacySpotLocations(spots: Spot[]): Promise<void> {
+  if (typeof window === "undefined" || !navigator.onLine) return;
+  const needsResolution = spots.filter(
+    (s) =>
+      !s.isDeleted &&
+      !s.locationMissing &&
+      s.location &&
+      Number.isFinite(s.location.lat) &&
+      Number.isFinite(s.location.lng) &&
+      (!s.location.locality || isCoordinateString(s.location.formattedAddress))
+  );
+
+  for (const spot of needsResolution.slice(0, 3)) {
+    try {
+      const controller = new AbortController();
+      const resolved = await reverseLocation(spot.location, controller.signal);
+      if (resolved.formattedAddress && !isCoordinateString(resolved.formattedAddress)) {
+        await db.venues.update(spot.id, {
+          location: {
+            ...spot.location,
+            formattedAddress: resolved.formattedAddress,
+            locality: resolved.locality || spot.location.locality,
+          },
+          updatedAt: Date.now(),
+          syncStatus: "pending",
+        });
+      }
+    } catch {
+      // Ignore background resolution error
+    }
+  }
+}
+

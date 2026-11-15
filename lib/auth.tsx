@@ -13,11 +13,18 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  signInWithCustomToken,
   getRedirectResult,
   onAuthStateChanged,
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
+import {
+  signIn as nextAuthSignIn,
+  signOut as nextAuthSignOut,
+  useSession,
+  SessionProvider,
+} from "next-auth/react";
 import { getFirebaseAuth } from "./firebase";
 import { useToast } from "./toast";
 import { associateLocalRecordsWithUser } from "./journalSync";
@@ -108,20 +115,34 @@ function clearCachedSession(): void {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /* ------------------------------------------------------------------ */
-/*  Provider                                                           */
+/*  Provider (outer shell wrapping SessionProvider)                    */
 /* ------------------------------------------------------------------ */
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  return (
+    <SessionProvider>
+      <AuthProviderInner>{children}</AuthProviderInner>
+    </SessionProvider>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Provider (inner with access to NextAuth + Firebase)                */
+/* ------------------------------------------------------------------ */
+
+function AuthProviderInner({ children }: { children: ReactNode }) {
+  const { data: nextAuthSession, status: nextAuthStatus } = useSession();
   const { showToast } = useToast();
 
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [firebaseLoading, setFirebaseLoading] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
   const [quickLoginAccounts, setQuickLoginAccounts] = useState<QuickLoginAccount[]>([]);
   const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
 
   // Guard to prevent repeating welcome toast
   const prevUserRef = useRef<User | null>(null);
+  const tokenBridgeInFlight = useRef(false);
 
   // Load cached session + guest mode + quick-login history from localStorage on mount.
   useEffect(() => {
@@ -163,11 +184,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Listen to Firebase auth state & handle redirect result
   useEffect(() => {
-    if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
-      setLoading(false);
-      return;
-    }
-
     let isMounted = true;
     const auth = getFirebaseAuth();
 
@@ -216,14 +232,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Automatically associate guest/local records with user.uid
         try {
-          await associateLocalRecordsWithUser(firebaseUser.uid);
+          const claimedCount = await associateLocalRecordsWithUser(firebaseUser.uid);
+          if (claimedCount > 0) {
+            showToast("Your saved spots are now synced to your Google account", "success");
+          }
         } catch (e) {
           console.error("[KeepCheck Auth] Failed to associate local records:", e);
         }
       } else {
         setUser(null);
       }
-      setLoading(false);
+      setFirebaseLoading(false);
     });
 
     return () => {
@@ -232,29 +251,79 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [saveToQuickLogin, showToast]);
 
-  // Sign in with Google using Firebase Authentication (popup with redirect fallback)
-  const signInWithGoogle = useCallback(async (emailHint?: string): Promise<User | void> => {
-    const auth = getFirebaseAuth();
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({
-      prompt: "select_account",
-      ...(emailHint ? { login_hint: emailHint } : {}),
-    });
+  // ---- NextAuth (Vercel OAuth) → Firebase Token Bridge ----
+  // When NextAuth session resolves (e.g. on Vercel deployment using AUTH_GOOGLE_ID/AUTH_SECRET),
+  // exchange it via /api/firebase-token for a Firebase custom token.
+  useEffect(() => {
+    if (
+      nextAuthStatus !== "authenticated" ||
+      !nextAuthSession?.user?.email ||
+      user !== null ||
+      tokenBridgeInFlight.current
+    ) {
+      return;
+    }
 
-    try {
-      const result = await signInWithPopup(auth, provider);
-      setIsGuest(false);
+    tokenBridgeInFlight.current = true;
+
+    (async () => {
       try {
-        localStorage.removeItem(GUEST_MODE_KEY);
-      } catch {}
+        const res = await fetch("/api/firebase-token", { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`Token bridge failed (${res.status}): ${body}`);
+        }
+
+        const { customToken } = await res.json();
+        await signInWithCustomToken(getFirebaseAuth(), customToken);
+        setIsGuest(false);
+        try {
+          localStorage.removeItem(GUEST_MODE_KEY);
+        } catch {}
+      } catch (err) {
+        console.warn("[KeepCheck] Firebase token bridge error (falling back to client auth):", err);
+        tokenBridgeInFlight.current = false;
+      }
+    })();
+  }, [nextAuthStatus, nextAuthSession, user]);
+
+  // Unified Google Sign In:
+  // 1. Tries NextAuth signIn (standard for Vercel with AUTH_GOOGLE_ID & AUTH_SECRET).
+  // 2. Falls back cleanly to Firebase client signInWithPopup / signInWithRedirect.
+  const signInWithGoogle = useCallback(async (emailHint?: string): Promise<User | void> => {
+    tokenBridgeInFlight.current = false;
+    setIsGuest(false);
+    try {
+      localStorage.removeItem(GUEST_MODE_KEY);
+    } catch {}
+
+    // First attempt NextAuth OAuth (used on Vercel)
+    try {
+      await nextAuthSignIn("google", undefined, emailHint ? { login_hint: emailHint } : undefined);
+      return;
+    } catch (nextAuthErr) {
+      console.warn("[KeepCheck Auth] NextAuth sign-in attempt finished or failed, trying Firebase client auth:", nextAuthErr);
+    }
+
+    // Direct Firebase client fallback
+    try {
+      const auth = getFirebaseAuth();
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({
+        prompt: "select_account",
+        ...(emailHint ? { login_hint: emailHint } : {}),
+      });
+
+      const result = await signInWithPopup(auth, provider);
       return result.user;
     } catch (err: unknown) {
       const authErr = err as { code?: string; message?: string };
-      // Automatic fallback to redirect if popup is blocked or unsupported in standalone PWA
       if (
         authErr.code === "auth/popup-blocked" ||
         authErr.code === "auth/operation-not-supported-in-this-environment"
       ) {
+        const auth = getFirebaseAuth();
+        const provider = new GoogleAuthProvider();
         await signInWithRedirect(auth, provider);
         return;
       }
@@ -268,9 +337,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Sign out cleanly
+  // Clean sign out of both NextAuth and Firebase
   const signOut = useCallback(async () => {
     showToast("👋 Signed out successfully", "info");
+
+    try {
+      await nextAuthSignOut({ redirect: false });
+    } catch (error) {
+      console.error("[KeepCheck Auth] NextAuth signOut error:", error);
+    }
+
     try {
       const auth = getFirebaseAuth();
       await firebaseSignOut(auth);
@@ -285,6 +361,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.removeItem(GUEST_MODE_KEY);
     } catch {}
+    tokenBridgeInFlight.current = false;
   }, [showToast]);
 
   const continueAsGuest = useCallback(() => {
@@ -300,6 +377,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(GUEST_MODE_KEY);
     } catch {}
   }, []);
+
+  const loading =
+    firebaseLoading &&
+    nextAuthStatus === "loading" &&
+    !cachedSession;
 
   return (
     <AuthContext.Provider

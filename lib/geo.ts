@@ -16,6 +16,24 @@ export interface Venue {
 export function coordinateLabel(p: Coordinates): string {
   return `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
 }
+
+export function isCoordinateString(str?: string): boolean {
+  if (!str) return false;
+  return /^-?\d+(\.\d+)?[,\s]+-?\d+(\.\d+)?$/.test(str.trim());
+}
+
+export function humanReadableLocation(
+  loc?: SpotLocation,
+  locationMissing?: boolean,
+): string {
+  if (locationMissing) return "Location not set";
+  if (!loc) return "Location not set";
+  if (loc.locality && !isCoordinateString(loc.locality)) return loc.locality;
+  if (loc.formattedAddress && !isCoordinateString(loc.formattedAddress)) {
+    return loc.formattedAddress;
+  }
+  return "Pin on map";
+}
 export function spotLocation(spot: FoodSpotLog): SpotLocation | undefined {
   const lat = spot.location?.lat ?? spot.latitude;
   const lng = spot.location?.lng ?? spot.longitude;

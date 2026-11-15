@@ -93,7 +93,7 @@ export default function SpotsMap({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Venue[]>([]);
   const [searchStatus, setSearchStatus] = useState("");
-  const [discoveryStatus, setDiscoveryStatus] = useState("Zoom in to discover spots");
+  const [discoveryStatus, setDiscoveryStatus] = useState("Zoom in to see nearby cafés");
 
   const [routeMode, setRouteMode] = useState<"foot" | "driving">("foot");
   const [showRoute, setShowRoute] = useState(false);
@@ -159,11 +159,15 @@ export default function SpotsMap({
     }).setView(p ? [p.lat, p.lng] : [14.5995, 120.9842], p ? 16 : 13);
     mapRef.current = map;
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-    }).addTo(map);
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: "abcd",
+        maxZoom: 20,
+      },
+    ).addTo(map);
 
     const click = (e: L.LeafletMouseEvent) => {
       reverse.current?.abort();
@@ -220,7 +224,7 @@ export default function SpotsMap({
       controller?.abort();
       if (map.getZoom() < 15) {
         setPois([]);
-        setDiscoveryStatus("Zoom in to discover spots");
+        setDiscoveryStatus("Zoom in to see nearby cafés");
         return;
       }
 
@@ -249,8 +253,8 @@ export default function SpotsMap({
         if (venues) setPois(venues.slice(0, 35));
         setDiscoveryStatus(
           venues
-            ? `${Math.min(venues.length, 35)} nearby spots${online ? "" : " · cached"}`
-            : "Discovery unavailable · saved spots still work",
+            ? `${Math.min(venues.length, 35)} nearby cafés found${online ? "" : " · cached"}`
+            : "Nearby cafés unavailable",
         );
       }, 600);
     };
@@ -512,19 +516,27 @@ export default function SpotsMap({
 
   function handleLocateMe() {
     if (gps.includes("denied")) {
-      showToast("Location access was disabled. Please enable GPS in browser settings.", "info");
+      showToast("Turn on location in your browser to see spots near you", "info");
       return;
     }
     const pos = rawPosition.current;
     if (pos && mapRef.current) {
-      mapRef.current.flyTo([pos.lat, pos.lng], 17);
+      mapRef.current.flyTo([pos.lat, pos.lng], 17, { duration: 1.2 });
     } else {
-      showToast("Waiting for GPS position…", "info");
+      showToast("Finding your current location…", "info");
+    }
+  }
+
+  function handleDiscoveryClick() {
+    const map = mapRef.current;
+    if (!map) return;
+    if (map.getZoom() < 15) {
+      map.flyTo(map.getCenter(), 15, { duration: 1.0 });
     }
   }
 
   return (
-    <div className="relative h-full w-full min-h-0 overflow-hidden bg-[#F8F6F2]">
+    <div className="relative h-full w-full min-h-0 overflow-hidden bg-[#F8F6F2] dark:bg-[#120e0b]">
       {/* Full-bleed Leaflet Map Canvas */}
       <div
         ref={container}
@@ -536,7 +548,7 @@ export default function SpotsMap({
       {!splitPaneMode && (
         <div className="map-panel pointer-events-none absolute inset-3 z-20 flex flex-col justify-between">
           {/* Top Search & Nav Overlay (Mobile only) */}
-          <div className="pointer-events-auto bg-white/95 rounded-2xl p-3 shadow-md border border-stone-200 space-y-2">
+          <div className="pointer-events-auto bg-white/95 dark:bg-[#1c1917]/95 rounded-2xl p-3 shadow-md border border-stone-200 dark:border-stone-800 space-y-2">
             {navigation}
             <div className="flex items-center gap-2">
               <input
@@ -545,7 +557,7 @@ export default function SpotsMap({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search venues…"
-                className="flex-1 h-9 px-3 rounded-xl border border-stone-200 bg-stone-50 text-xs text-stone-900 outline-none focus:border-amber-600"
+                className="flex-1 h-9 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
               />
               {filters}
             </div>
@@ -596,30 +608,35 @@ export default function SpotsMap({
 
       {/* Bottom-Right Floating Map Controls */}
       <div className="absolute right-3.5 bottom-6 z-20 flex flex-col items-center gap-2">
-        {/* Discovery Status Pill */}
-        <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 text-stone-700 text-xs font-semibold rounded-full shadow-md border border-stone-200 pointer-events-none">
-          <Compass className="w-3.5 h-3.5 text-amber-700 animate-spin-slow" />
+        {/* Interactive Discovery Button */}
+        <button
+          type="button"
+          onClick={handleDiscoveryClick}
+          aria-label={discoveryStatus}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-white/95 dark:bg-[#1c1917]/95 hover:bg-amber-50 dark:hover:bg-stone-850 text-stone-700 dark:text-stone-200 hover:text-amber-800 dark:hover:text-amber-400 text-xs font-bold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
+        >
+          <Compass className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500 animate-spin-slow shrink-0" />
           <span>{discoveryStatus}</span>
-        </div>
+        </button>
 
         {/* Locate Me */}
         <button
           type="button"
           onClick={handleLocateMe}
           aria-label="Locate me on map"
-          className="w-11 h-11 bg-white hover:bg-stone-50 text-stone-700 active:text-amber-700 rounded-xl shadow-md border border-stone-200/90 flex items-center justify-center transition-all cursor-pointer active:scale-95"
+          className="w-11 h-11 bg-white dark:bg-[#1c1917] hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 active:text-amber-700 dark:active:text-amber-500 rounded-xl shadow-md border border-stone-200/90 dark:border-stone-700 flex items-center justify-center transition-all cursor-pointer active:scale-95"
           title="Locate me"
         >
-          <Navigation className="w-5 h-5 text-amber-700" />
+          <Navigation className="w-5 h-5 text-amber-700 dark:text-amber-500" />
         </button>
 
         {/* Zoom In & Out Controls */}
-        <div className="bg-white rounded-xl shadow-md border border-stone-200/90 overflow-hidden flex flex-col">
+        <div className="bg-white dark:bg-[#1c1917] rounded-xl shadow-md border border-stone-200/90 dark:border-stone-700 overflow-hidden flex flex-col">
           <button
             type="button"
             onClick={() => mapRef.current?.zoomIn()}
             aria-label="Zoom in"
-            className="w-11 h-10 hover:bg-stone-50 text-stone-700 flex items-center justify-center border-b border-stone-100 transition-colors cursor-pointer active:scale-95"
+            className="w-11 h-10 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 flex items-center justify-center border-b border-stone-100 dark:border-stone-800 transition-colors cursor-pointer active:scale-95"
           >
             <Plus className="w-5 h-5" />
           </button>
@@ -627,7 +644,7 @@ export default function SpotsMap({
             type="button"
             onClick={() => mapRef.current?.zoomOut()}
             aria-label="Zoom out"
-            className="w-11 h-10 hover:bg-stone-50 text-stone-700 flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+            className="w-11 h-10 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 flex items-center justify-center transition-colors cursor-pointer active:scale-95"
           >
             <Minus className="w-5 h-5" />
           </button>

@@ -64,11 +64,11 @@ export default function JournalFilters({
         onClick={() => setOpen((v) => !v)}
         className={`h-10 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
           count > 0 || open
-            ? "bg-amber-50 text-amber-900 border-amber-300 shadow-xs"
-            : "bg-white text-stone-700 border-stone-200/90 hover:border-amber-300 hover:bg-stone-50"
+            ? "bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 shadow-xs"
+            : "bg-white dark:bg-[#1c1917] text-stone-700 dark:text-stone-300 border-stone-200/90 dark:border-stone-700 hover:border-amber-300 dark:hover:border-amber-600 hover:bg-stone-50 dark:hover:bg-stone-800"
         }`}
       >
-        <SlidersHorizontal className="w-3.5 h-3.5 text-stone-500" />
+        <SlidersHorizontal className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400" />
         <span>Filters</span>
         {count > 0 && (
           <span className="w-4 h-4 rounded-full bg-amber-600 text-white text-[10px] font-bold flex items-center justify-center">
@@ -79,12 +79,12 @@ export default function JournalFilters({
 
       {open && (
         <div
-          className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 z-50 w-[320px] max-w-[calc(100vw-32px)] bg-white border border-stone-200 rounded-2xl shadow-xl p-4 space-y-3.5 text-stone-900"
+          className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 z-50 w-[320px] max-w-[calc(100vw-32px)] bg-white dark:bg-[#1c1917] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl p-4 space-y-3.5 text-stone-900 dark:text-stone-100"
           role="region"
           aria-label="Filters & Decide"
         >
-          <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-            <h4 className="font-serif font-bold text-sm text-stone-900">
+          <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-stone-800">
+            <h4 className="font-serif font-bold text-sm text-stone-900 dark:text-stone-100">
               Filter Spots
             </h4>
             {count > 0 && (
@@ -97,7 +97,7 @@ export default function JournalFilters({
                     query: value.query,
                   })
                 }
-                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 cursor-pointer"
+                className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300 flex items-center gap-1 cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>Reset</span>
@@ -107,14 +107,14 @@ export default function JournalFilters({
 
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                 Category
               </label>
               <select
                 aria-label="Filter category"
                 value={value.category}
                 onChange={(e) => update({ category: e.target.value })}
-                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-200 outline-none focus:border-amber-600"
               >
                 <option value="all">All categories</option>
                 {["coffee", "restaurant", "bakery", "bar", "other"].map((v) => (
@@ -126,14 +126,14 @@ export default function JournalFilters({
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                 Budget
               </label>
               <select
                 aria-label="Filter budget"
                 value={value.budget}
                 onChange={(e) => update({ budget: e.target.value })}
-                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-200 outline-none focus:border-amber-600"
               >
                 <option value="all">Any budget</option>
                 {["₱", "₱₱", "₱₱₱"].map((v) => (
@@ -143,14 +143,14 @@ export default function JournalFilters({
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                 Distance
               </label>
               <select
                 aria-label="Maximum distance"
                 value={value.distance}
                 onChange={(e) => update({ distance: Number(e.target.value) })}
-                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-200 outline-none focus:border-amber-600"
               >
                 <option value={0}>Any distance</option>
                 <option disabled={!hasGps} value={1000}>
@@ -163,14 +163,14 @@ export default function JournalFilters({
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                 Sort Order
               </label>
               <select
                 aria-label="Sort saved spots"
                 value={value.sort}
                 onChange={(e) => update({ sort: e.target.value })}
-                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-200 outline-none focus:border-amber-600"
               >
                 <option value="recent">Recently Visited</option>
                 <option value="rating">Highest Rated</option>
@@ -183,14 +183,14 @@ export default function JournalFilters({
 
           {collections.length > 0 && (
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
                 Collection
               </label>
               <select
                 aria-label="Filter collection"
                 value={value.collection}
                 onChange={(e) => update({ collection: e.target.value })}
-                className="w-full h-9 px-2 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-800 outline-none focus:border-amber-600"
+                className="w-full h-9 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-200 outline-none focus:border-amber-600"
               >
                 <option value="all">All collections</option>
                 {collections.map((c) => (
@@ -204,7 +204,7 @@ export default function JournalFilters({
 
           {/* Vibe Chips */}
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 mb-1.5">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1.5">
               Vibes & Tags
             </label>
             <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
@@ -225,8 +225,8 @@ export default function JournalFilters({
                     }
                     className={`px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer capitalize ${
                       active
-                        ? "bg-amber-100 text-amber-900 border-amber-300 font-semibold"
-                        : "bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200"
+                        ? "bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 font-semibold"
+                        : "bg-stone-50 dark:bg-stone-800/80 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
                     }`}
                   >
                     {v.replaceAll("-", " ")}
@@ -237,7 +237,7 @@ export default function JournalFilters({
           </div>
 
           {/* Bottom Action: Pick For Me */}
-          <div className="pt-2 border-t border-stone-100">
+          <div className="pt-2 border-t border-stone-100 dark:border-stone-800">
             <button
               type="button"
               aria-label="Pick For Me"
@@ -267,7 +267,7 @@ export function StatusTabs({
 }) {
   return (
     <div
-      className="inline-flex items-center p-0.5 bg-stone-100 rounded-xl border border-stone-200/80 text-xs font-semibold"
+      className="inline-flex items-center p-0.5 bg-stone-100 dark:bg-stone-800/90 rounded-xl border border-stone-200/80 dark:border-stone-700 text-xs font-semibold"
       aria-label="Venue status tabs"
     >
       {[
@@ -285,8 +285,8 @@ export function StatusTabs({
             onClick={() => onChange({ ...value, status: tab.key })}
             className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
               isSelected
-                ? "bg-white text-stone-900 shadow-xs font-bold"
-                : "text-stone-600 hover:text-stone-900"
+                ? "bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-bold"
+                : "text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200"
             }`}
           >
             {tab.label}
