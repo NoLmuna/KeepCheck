@@ -10,20 +10,17 @@ import {
   Croissant,
   Wine,
   Camera,
-  Search,
   Check,
   Bookmark,
-  Sparkles,
-  Upload,
-  ChevronDown,
-  ChevronUp,
+  FolderPlus,
 } from "lucide-react";
 import type { Spot, SpotCollection, SpotCategory, MenuItemNote } from "@/lib/models";
 import { vibeTags } from "@/lib/models";
 import { searchVenues } from "@/lib/osm";
-import { haversine, humanReadableLocation, type Coordinates, type Venue } from "@/lib/geo";
+import { humanReadableLocation, type Coordinates, type Venue } from "@/lib/geo";
 import {
   saveJournalEntry,
+  saveCollection,
   DuplicateVenueError,
   type SpotDraft,
   type VisitDraft,
@@ -64,7 +61,7 @@ export default function LogSpotModal({
     initialVenue?.location.formattedAddress ??
       (position
         ? `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`
-        : "Location not recorded")
+        : "")
   );
   const [locality, setLocality] = useState(initialVenue?.location.locality ?? "");
   const [osmId, setOsmId] = useState<string | undefined>(
@@ -74,14 +71,14 @@ export default function LogSpotModal({
     initialVenue?.location ?? position ?? { lat: 0, lng: 0 }
   );
 
-  // Search autocomplete for new venue name
+  // Search autocomplete for venue name
   const [searchResults, setSearchResults] = useState<Venue[]>([]);
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Visit specifics
-  const [rating, setRating] = useState(5);
+  // Ratings default to 0 (unselected) so ratings require intentional input
+  const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [date, setDate] = useState(() => {
     const d = new Date();
@@ -96,6 +93,11 @@ export default function LogSpotModal({
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const [spend, setSpend] = useState("");
 
+  // Inline collection creation
+  const [showNewCollection, setShowNewCollection] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [creatingCollection, setCreatingCollection] = useState(false);
+
   // Photos
   const [photos, setPhotos] = useState<VisitDraft["photos"]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
@@ -105,7 +107,19 @@ export default function LogSpotModal({
   const [error, setError] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<Spot | null>(null);
 
-  // Search Photon when user types venue name
+  // Escape key handler
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  // Autocomplete search as user types
   useEffect(() => {
     if (initialVenue || name.trim().length < 2) {
       setSearchResults([]);
@@ -148,6 +162,22 @@ export default function LogSpotModal({
     setShowDropdown(false);
   }
 
+  async function handleCreateCollectionInline() {
+    if (!newCollectionName.trim()) return;
+    setCreatingCollection(true);
+    try {
+      const col = await saveCollection(newCollectionName.trim(), "", user?.uid);
+      setSelectedCollections((prev) => [...prev, col.id]);
+      setNewCollectionName("");
+      setShowNewCollection(false);
+      showToast(`Created collection "${col.name}"`, "success");
+    } catch {
+      showToast("Could not create collection", "error");
+    } finally {
+      setCreatingCollection(false);
+    }
+  }
+
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || !files.length) return;
@@ -188,16 +218,46 @@ export default function LogSpotModal({
     setDuplicateWarning(null);
 
     try {
+      // Auto-Geocode Saved Spots:
+      // If coordinates are missing (0, 0) or osmId is not attached:
+      // Automatically search Photon for name with proximity bias to attach coordinates!
+      let resolvedCoords = coords;
+      let resolvedAddress = address;
+      let resolvedLocality = locality;
+      let resolvedOsmId = osmId;
+
+      if ((resolvedCoords.lat === 0 && resolvedCoords.lng === 0) || !resolvedOsmId) {
+        try {
+          const autoFound = await searchVenues(name.trim(), position ?? null);
+          if (autoFound && autoFound.length > 0) {
+            const best = autoFound[0];
+            resolvedCoords = best.location;
+            resolvedAddress = best.location.formattedAddress || resolvedAddress;
+            resolvedLocality = best.location.locality ?? resolvedLocality;
+            resolvedOsmId = best.location.osmId;
+          } else if (position && resolvedCoords.lat === 0 && resolvedCoords.lng === 0) {
+            resolvedCoords = position;
+            if (!resolvedAddress) {
+              resolvedAddress = `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+            }
+          }
+        } catch {
+          if (position && resolvedCoords.lat === 0 && resolvedCoords.lng === 0) {
+            resolvedCoords = position;
+          }
+        }
+      }
+
       const targetVenue: Venue = initialVenue ?? {
-        key: `venue-${coords.lat}-${coords.lng}-${name}`,
+        key: `venue-${resolvedCoords.lat}-${resolvedCoords.lng}-${name}`,
         name: name.trim(),
         category,
         location: {
-          lat: coords.lat,
-          lng: coords.lng,
-          formattedAddress: address,
-          locality: locality || undefined,
-          osmId,
+          lat: resolvedCoords.lat,
+          lng: resolvedCoords.lng,
+          formattedAddress: resolvedAddress || "Near your location",
+          locality: resolvedLocality || undefined,
+          osmId: resolvedOsmId,
         },
       };
 
@@ -210,21 +270,23 @@ export default function LogSpotModal({
         });
       }
 
+      const isWishlist = mode === "wishlist";
+
       const draft: SpotDraft = {
         name: name.trim(),
         category,
-        status: mode === "wishlist" ? "wishlist" : "visited",
-        vibeTags: selectedVibes,
+        status: isWishlist ? "wishlist" : "visited",
+        vibeTags: isWishlist ? [] : selectedVibes,
         menuItems,
         budgetTier: budget,
         collectionIds: selectedCollections,
+        notes: notes.trim() || undefined,
       };
 
-      // In visit mode OR if photos are attached to wishlist, create a visit entry
       let visit: VisitDraft | undefined = undefined;
-      if (mode === "visit" || photos.length > 0) {
+      if (!isWishlist || photos.length > 0) {
         visit = {
-          rating: mode === "visit" ? rating : 5,
+          rating: rating > 0 ? rating : 5,
           visitedAt: new Date(date).getTime(),
           notes: notes.trim(),
           itemsOrdered: mustOrder.trim() ? [mustOrder.trim()] : [],
@@ -242,7 +304,9 @@ export default function LogSpotModal({
       );
 
       showToast(
-        mode === "wishlist" ? `Added "${savedSpot.name}" to Wishlist` : `Saved visit to "${savedSpot.name}"`,
+        isWishlist
+          ? `Added "${savedSpot.name}" to Want to Try`
+          : `Saved visit to "${savedSpot.name}"`,
         "success"
       );
       onSaved(savedSpot);
@@ -259,17 +323,26 @@ export default function LogSpotModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Log spot modal"
-        className="relative w-full max-w-lg max-h-[90dvh] bg-white dark:bg-[#1c1612] rounded-2xl shadow-2xl border border-stone-200 dark:border-stone-800 flex flex-col overflow-hidden animate-page-enter"
+        aria-label="Save spot modal"
+        className="relative w-full max-w-lg max-h-[90dvh] bg-white dark:bg-[#1C1612] rounded-2xl shadow-2xl border border-stone-200 dark:border-stone-800 flex flex-col overflow-hidden animate-modal-enter"
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-stone-200/80 dark:border-stone-800 flex items-center justify-between shrink-0 bg-[#F8F6F2] dark:bg-[#120e0b]">
+        <div className="px-5 py-4 border-b border-stone-200/80 dark:border-stone-800 flex items-center justify-between shrink-0 bg-[#FAF7F2] dark:bg-[#15110F]">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-600" />
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${
+                mode === "wishlist" ? "bg-indigo-600" : "bg-amber-600"
+              }`}
+            />
             <h2 className="font-serif font-bold text-lg text-stone-900 dark:text-white">
               {mode === "visit" ? "Save Place · Been Here" : "Save Place · Want to Try"}
             </h2>
@@ -292,7 +365,7 @@ export default function LogSpotModal({
               onClick={() => setMode("visit")}
               className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 mode === "visit"
-                  ? "bg-white dark:bg-stone-900 text-stone-900 dark:text-white shadow-xs font-bold"
+                  ? "bg-white dark:bg-[#1C1612] text-stone-900 dark:text-white shadow-xs font-bold"
                   : "text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
               }`}
             >
@@ -304,7 +377,7 @@ export default function LogSpotModal({
               onClick={() => setMode("wishlist")}
               className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 mode === "wishlist"
-                  ? "bg-white dark:bg-stone-900 text-indigo-700 dark:text-indigo-400 shadow-xs font-bold"
+                  ? "bg-white dark:bg-[#1C1612] text-indigo-700 dark:text-indigo-400 shadow-xs font-bold"
                   : "text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
               }`}
             >
@@ -313,7 +386,7 @@ export default function LogSpotModal({
             </button>
           </div>
 
-          {/* Step 1: Place Name & Search Autocomplete */}
+          {/* Place Name & Autocomplete Search */}
           <div className="relative">
             <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
               Where is it? *
@@ -332,7 +405,7 @@ export default function LogSpotModal({
               )}
             </div>
 
-            {/* Photon autocomplete dropdown */}
+            {/* Dropdown Results */}
             {showDropdown && searchResults.length > 0 && (
               <div className="absolute left-0 right-0 top-full mt-1.5 z-30 max-h-48 overflow-y-auto bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl shadow-lg divide-y divide-stone-100 dark:divide-stone-700">
                 {searchResults.slice(0, 5).map((res) => (
@@ -355,15 +428,22 @@ export default function LogSpotModal({
             )}
           </div>
 
-          {/* Location details summary badge */}
-          <div className="p-2.5 bg-stone-50 dark:bg-stone-800/60 rounded-xl border border-stone-200/70 dark:border-stone-700 text-xs flex items-center gap-2 text-stone-600 dark:text-stone-400">
-            <MapPin className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
-            <span className="truncate">
-              {humanReadableLocation({ lat: coords.lat, lng: coords.lng, formattedAddress: address, locality })}
-            </span>
-          </div>
+          {/* Location Summary */}
+          {(address || coords.lat !== 0) && (
+            <div className="p-2.5 bg-stone-50 dark:bg-stone-800/60 rounded-xl border border-stone-200/70 dark:border-stone-700 text-xs flex items-center gap-2 text-stone-600 dark:text-stone-300">
+              <MapPin className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
+              <span className="truncate">
+                {humanReadableLocation({
+                  lat: coords.lat,
+                  lng: coords.lng,
+                  formattedAddress: address || "Near your location",
+                  locality,
+                })}
+              </span>
+            </div>
+          )}
 
-          {/* Step 2: Rating (Only when Been Here) */}
+          {/* Rating (Only when Been Here) */}
           {mode === "visit" && (
             <div>
               <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1.5">
@@ -390,35 +470,115 @@ export default function LogSpotModal({
                   </button>
                 ))}
                 <span className="text-xs font-semibold text-stone-600 dark:text-stone-300 ml-2">
-                  {rating === 5
-                    ? "Loved it! (5/5)"
-                    : rating === 4
-                      ? "Great spot (4/5)"
-                      : rating === 3
-                        ? "Good (3/5)"
-                        : rating === 2
-                          ? "Fair (2/5)"
-                          : "Not for me (1/5)"}
+                  {rating === 0
+                    ? "Tap to rate"
+                    : rating === 5
+                      ? "Loved it! (5/5)"
+                      : rating === 4
+                        ? "Great spot (4/5)"
+                        : rating === 3
+                          ? "Good (3/5)"
+                          : rating === 2
+                            ? "Fair (2/5)"
+                            : "Not for me (1/5)"}
                 </span>
               </div>
             </div>
           )}
 
-          {/* Step 3: Quick Note / What did you order */}
+          {/* Quick Note / Must Order / What to Try */}
           <div>
             <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
-              What did you order or love here?
+              {mode === "visit" ? "What did you order or love here?" : "Notes / What to Try"}
             </label>
             <input
               type="text"
-              value={mustOrder}
-              onChange={(e) => setMustOrder(e.target.value)}
-              placeholder="e.g. Spanish Latte, Truffle Pasta, Sourdough…"
+              value={mode === "visit" ? mustOrder : notes}
+              onChange={(e) => {
+                if (mode === "visit") setMustOrder(e.target.value);
+                else setNotes(e.target.value);
+              }}
+              placeholder={
+                mode === "visit"
+                  ? "e.g. Spanish Latte, Truffle Pasta, Sourdough…"
+                  : "e.g. Recommended by Sarah, try their iced matcha latte…"
+              }
               className="w-full h-11 px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 text-xs outline-none placeholder:text-stone-400"
             />
           </div>
 
-          {/* Optional Collapsible Section */}
+          {/* Inline Collections Section */}
+          <div className="pt-2 border-t border-stone-200/70 dark:border-stone-800">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider">
+                Add to Collections
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowNewCollection(!showNewCollection)}
+                className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <FolderPlus className="w-3 h-3" />
+                <span>+ New Collection</span>
+              </button>
+            </div>
+
+            {showNewCollection && (
+              <div className="flex items-center gap-1.5 mb-2.5 p-2 rounded-xl bg-stone-50 dark:bg-stone-800 border border-amber-200 dark:border-amber-800">
+                <input
+                  type="text"
+                  placeholder="e.g. Best Matchas, Date Night Spots…"
+                  value={newCollectionName}
+                  onChange={(e) => setNewCollectionName(e.target.value)}
+                  className="flex-1 h-8 px-2.5 rounded-lg bg-white dark:bg-stone-900 text-xs border border-stone-200 dark:border-stone-700 outline-none"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleCreateCollectionInline();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateCollectionInline}
+                  disabled={creatingCollection || !newCollectionName.trim()}
+                  className="px-3 py-1 bg-amber-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer"
+                >
+                  Add
+                </button>
+              </div>
+            )}
+
+            {collections.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                {collections.map((col) => {
+                  const isSelected = selectedCollections.includes(col.id);
+                  return (
+                    <button
+                      key={col.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedCollections((prev) =>
+                          isSelected ? prev.filter((id) => id !== col.id) : [...prev, col.id]
+                        )
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 font-bold"
+                          : "bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
+                      }`}
+                    >
+                      {col.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-stone-400 italic">No collections yet. Create one with the link above!</p>
+            )}
+          </div>
+
+          {/* Optional Extra Details Toggle */}
           <div className="pt-2 border-t border-stone-200/70 dark:border-stone-800">
             <button
               type="button"
@@ -426,7 +586,7 @@ export default function LogSpotModal({
               className="w-full py-2.5 px-3.5 rounded-xl bg-stone-100 hover:bg-stone-200/80 dark:bg-stone-800 dark:hover:bg-stone-700 text-xs font-semibold text-stone-700 dark:text-stone-300 flex items-center justify-between transition-colors cursor-pointer"
             >
               <span className="font-bold">
-                {showDetails ? "− Hide extra details" : "+ Add photos, Wi-Fi tags & price"}
+                {showDetails ? "− Hide extra details" : "+ Category, price & photos"}
               </span>
               <span className="text-[10px] text-stone-400 font-normal">Optional</span>
             </button>
@@ -467,7 +627,30 @@ export default function LogSpotModal({
                   </div>
                 </div>
 
-                {/* Photo Upload Section */}
+                {/* Price Range */}
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
+                    Price Range
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["₱", "₱₱", "₱₱₱"] as const).map((tier) => (
+                      <button
+                        key={tier}
+                        type="button"
+                        onClick={() => setBudget(budget === tier ? undefined : tier)}
+                        className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                          budget === tier
+                            ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 shadow-2xs"
+                            : "bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
+                        }`}
+                      >
+                        {tier}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Photos */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider">
@@ -517,109 +700,77 @@ export default function LogSpotModal({
                   </div>
                 </div>
 
-                {/* Budget Tier */}
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
-                    Price Range
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(["₱", "₱₱", "₱₱₱"] as const).map((tier) => (
-                      <button
-                        key={tier}
-                        type="button"
-                        onClick={() => setBudget(budget === tier ? undefined : tier)}
-                        className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
-                          budget === tier
-                            ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 shadow-2xs"
-                            : "bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
-                        }`}
-                      >
-                        {tier}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Vibe Tags */}
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1.5">
-                    Vibes & Perks
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {vibeTags.map((tag) => {
-                      const active = selectedVibes.includes(tag);
-                      return (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() =>
-                            setSelectedVibes((prev) =>
-                              active ? prev.filter((t) => t !== tag) : [...prev, tag]
-                            )
-                          }
-                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer capitalize ${
-                            active
-                              ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 font-semibold"
-                              : "bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
-                          }`}
-                        >
-                          {tag.replaceAll("-", " ")}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Additional notes & total spend */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Vibe Tags: ONLY shown for Been Here visits, not Want to Try */}
+                {mode === "visit" && (
                   <div>
-                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
-                      Date Visited
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1.5">
+                      Vibes & Perks
                     </label>
-                    <input
-                      type="datetime-local"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      className="w-full h-10 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600"
-                    />
+                    <div className="flex flex-wrap gap-1.5">
+                      {vibeTags.map((tag) => {
+                        const active = selectedVibes.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() =>
+                              setSelectedVibes((prev) =>
+                                active ? prev.filter((t) => t !== tag) : [...prev, tag]
+                              )
+                            }
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer capitalize ${
+                              active
+                                ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 font-semibold"
+                                : "bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
+                            }`}
+                          >
+                            {tag.replaceAll("-", " ")}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
-                      Total Spend (₱)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="e.g. 450"
-                      value={spend}
-                      onChange={(e) => setSpend(e.target.value)}
-                      className="w-full h-10 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600 placeholder:text-stone-400"
-                    />
-                  </div>
-                </div>
+                )}
 
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
-                    Notes & Memories
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Atmosphere, seating, who you went with…"
-                    className="w-full p-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:border-amber-600 text-xs outline-none placeholder:text-stone-400 resize-none"
-                  />
-                </div>
+                {/* Date & Spend (Only when Been Here) */}
+                {mode === "visit" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
+                        Date Visited
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                        className="w-full h-10 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1">
+                        Total Spend (₱)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="e.g. 450"
+                        value={spend}
+                        onChange={(e) => setSpend(e.target.value)}
+                        className="w-full h-10 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600 placeholder:text-stone-400"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* Duplicate Venue Warning Card */}
+          {/* Duplicate Warning */}
           {duplicateWarning && (
             <div className="p-3.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-900 dark:text-amber-200 space-y-2">
               <p className="font-semibold">
-                You already saved “{duplicateWarning.name}”. Would you like to log a new visit to this existing venue?
+                You already saved “{duplicateWarning.name}”. Log a new visit to this existing venue?
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -641,7 +792,6 @@ export default function LogSpotModal({
             </div>
           )}
 
-          {/* Error Message */}
           {error && (
             <p role="alert" className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-2.5 rounded-xl font-medium">
               {error}
@@ -649,8 +799,8 @@ export default function LogSpotModal({
           )}
         </div>
 
-        {/* Modal Footer */}
-        <div className="px-5 py-3.5 border-t border-stone-200/80 dark:border-stone-800 bg-[#F8F6F2] dark:bg-[#120e0b] flex items-center justify-end gap-2.5 shrink-0">
+        {/* Modal Footer with Single Cancel Button & Clear Action Copy */}
+        <div className="px-5 py-3.5 border-t border-stone-200/80 dark:border-stone-800 bg-[#FAF7F2] dark:bg-[#15110F] flex items-center justify-end gap-2.5 shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -662,10 +812,10 @@ export default function LogSpotModal({
             type="button"
             onClick={() => handleSave()}
             disabled={saving || processingPhoto}
-            className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ${
+            className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5 text-white ${
               mode === "wishlist"
-                ? "bg-indigo-600 hover:bg-indigo-700 text-white"
-                : "bg-amber-700 hover:bg-amber-800 text-white"
+                ? "bg-indigo-600 hover:bg-indigo-700"
+                : "bg-amber-700 hover:bg-amber-800"
             }`}
           >
             {saving ? (
@@ -681,7 +831,7 @@ export default function LogSpotModal({
             ) : (
               <>
                 <Check className="w-3.5 h-3.5" />
-                <span>Save Spot</span>
+                <span>Save Visit</span>
               </>
             )}
           </button>

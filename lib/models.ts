@@ -42,6 +42,7 @@ export interface Spot extends SyncRecord {
   vibeTags: VibeTag[];
   menuItems: MenuItemNote[];
   collectionIds: string[];
+  notes?: string;
   coverPhotoUrl?: string;
   localCoverPhotoId?: string;
   location: SpotLocation;

@@ -64,14 +64,14 @@ export interface Bounds {
 // Callers handle null as a normal offline/rate-limit/timeout result.
 async function request<T>(
   url: string,
-  signal: AbortSignal,
+  signal?: AbortSignal,
   init?: RequestInit,
 ): Promise<T | null> {
-  if (signal.aborted || (typeof navigator !== "undefined" && !navigator.onLine))
+  if (signal?.aborted || (typeof navigator !== "undefined" && !navigator.onLine))
     return null;
   const controller = new AbortController();
   const abort = () => controller.abort();
-  signal.addEventListener("abort", abort, { once: true });
+  if (signal) signal.addEventListener("abort", abort, { once: true });
   const timeoutMs = url.includes("overpass") ? 4500 : 7000;
   const timeout = setTimeout(abort, timeoutMs);
   try {
@@ -90,7 +90,7 @@ async function request<T>(
     return null;
   } finally {
     clearTimeout(timeout);
-    signal.removeEventListener("abort", abort);
+    if (signal) signal.removeEventListener("abort", abort);
   }
 }
 const osmId = (type: string, id: number) =>
@@ -98,7 +98,7 @@ const osmId = (type: string, id: number) =>
 export async function searchVenues(
   query: string,
   position: Coordinates | null,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<Venue[] | null> {
   const params = new URLSearchParams({ q: query, limit: "6" });
   if (position) {

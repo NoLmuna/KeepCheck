@@ -17,6 +17,7 @@ export interface SpotDraft {
   vibeTags: VibeTag[];
   menuItems: MenuItemNote[];
   collectionIds: string[];
+  notes?: string;
 }
 export interface VisitDraft {
   rating: number;
@@ -171,10 +172,10 @@ export async function saveCollection(
   description: string,
   uid?: string,
   existing?: SpotCollection,
-) {
+): Promise<SpotCollection> {
   if (!name.trim()) throw new Error("Name is required");
   const now = Math.max(Date.now(), (existing?.updatedAt ?? 0) + 1);
-  await db.collections.put({
+  const col: SpotCollection = {
     ...existing,
     id: existing?.id ?? crypto.randomUUID(),
     name: name.trim(),
@@ -183,7 +184,9 @@ export async function saveCollection(
     updatedAt: now,
     syncStatus: "pending",
     ...(existing?.userId || uid ? { userId: existing?.userId ?? uid } : {}),
-  });
+  };
+  await db.collections.put(col);
+  return col;
 }
 export async function deleteCollection(id: string) {
   await db.transaction("rw", db.collections, db.venues, async () => {

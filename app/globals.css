@@ -7,25 +7,27 @@
 /* ================================================================== */
 
 :root {
-  /* Fonts family variables */
+  /* Fonts family variables: Fraunces (Headings) + Plus Jakarta Sans (UI & Body) */
   --font-fraunces: "Fraunces", Georgia, serif;
-  --font-work-sans: "Work Sans", system-ui, -apple-system, sans-serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-work-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-space-mono: "Space Mono", Consolas, Monaco, monospace;
 
-  /* Base palette — cream / caramel / sage */
-  --bg: #F8F1E7;
-  --surface: #FCF8F3;
-  --text-primary: #4E342E;
-  --text-secondary: #7D6558;
-  --accent: #D4A373;
-  --accent-glow: #F4C542;
+  /* Base palette — warm cream paper / espresso / terracotta */
+  --bg: #FAF7F2;
+  --surface: #FFFFFF;
+  --surface-elevated: #F4EFEB;
+  --text-primary: #2C221E;
+  --text-secondary: #6B5B52;
+  --accent: #B45309;
+  --accent-glow: #F59E0B;
   --category-cafe: #A3B18A;
-  --category-restaurant: #4E342E;
-  --gold: #F4C542;
+  --category-restaurant: #78350F;
+  --gold: #D97706;
 
   /* Neumorphic shadow pairs (light) */
   --neu-light: #ffffff;
-  --neu-dark: #e2d6c7;
+  --neu-dark: #e8ded4;
   --neu-shadow-raised: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
   --neu-shadow-inset: inset 4px 4px 10px var(--neu-dark), inset -4px -4px 10px var(--neu-light);
   --neu-shadow-button: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
@@ -34,19 +36,20 @@
 }
 
 .dark {
-  --bg: #1C1410;
-  --surface: #261D17;
-  --text-primary: #F8F1E7;
-  --text-secondary: #B8A890;
-  --accent: #D4A373;
-  --accent-glow: #F4C542;
+  --bg: #15110F;
+  --surface: #1E1815;
+  --surface-elevated: #28201B;
+  --text-primary: #F8F4EE;
+  --text-secondary: #BCAFA2;
+  --accent: #D97706;
+  --accent-glow: #FBBF24;
   --category-cafe: #A3B18A;
-  --category-restaurant: #A4897A;
-  --gold: #F4C542;
+  --category-restaurant: #C88A58;
+  --gold: #F59E0B;
 
   /* Neumorphic shadow pairs (dark) */
   --neu-light: #261e18;
-  --neu-dark: #120e0b;
+  --neu-dark: #0d0a08;
   --neu-shadow-raised: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
   --neu-shadow-inset: inset 4px 4px 10px var(--neu-dark), inset -4px -4px 10px var(--neu-light);
   --neu-shadow-button: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
@@ -77,7 +80,7 @@
   --shadow-neu-subtle: var(--neu-shadow-subtle);
 
   --font-serif: var(--font-fraunces);
-  --font-sans: var(--font-work-sans);
+  --font-sans: var(--font-sans);
   --font-mono: var(--font-space-mono);
 }
 
@@ -87,13 +90,13 @@
 
 body {
   background: var(--bg);
-  background-image:
-    radial-gradient(at 0% 0%, rgba(212, 163, 115, 0.12) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(163, 177, 138, 0.15) 0px, transparent 50%),
-    radial-gradient(at 50% 100%, rgba(244, 197, 66, 0.08) 0px, transparent 50%);
-  background-attachment: fixed;
   color: var(--text-primary);
-  font-family: var(--font-work-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ================================================================== */
@@ -674,29 +677,41 @@ body {
 /* Container resets and theme bindings */
 .leaflet-container {
   background: var(--bg) !important;
-  font-family: var(--font-work-sans), sans-serif !important;
+  font-family: var(--font-sans), system-ui, sans-serif !important;
 }
 
-/* Custom popups matching Neumorphism colors and styles */
+/* Custom popups matching editorial warm theme */
 .leaflet-popup-content-wrapper {
   background: var(--surface) !important;
   color: var(--text-primary) !important;
-  border-radius: 1.25rem !important; /* 20px matching rounded-3xl/2xl cards */
-  border: 1px solid rgba(107, 93, 79, 0.15) !important; /* using fallback border */
-  box-shadow: var(--neu-shadow-raised) !important;
+  border-radius: 1.25rem !important;
+  border: 1px solid rgba(125, 101, 88, 0.2) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.2) !important;
   padding: 0 !important;
+  overflow: hidden;
+}
+
+.dark .leaflet-popup-content-wrapper {
+  background: #201a16 !important;
+  border: 1px solid rgba(180, 150, 120, 0.2) !important;
+  color: #f8f4ee !important;
 }
 
 .leaflet-popup-tip {
   background: var(--surface) !important;
-  border: 1px solid rgba(107, 93, 79, 0.15) !important;
+  border: 1px solid rgba(125, 101, 88, 0.2) !important;
+}
+
+.dark .leaflet-popup-tip {
+  background: #201a16 !important;
+  border: 1px solid rgba(180, 150, 120, 0.2) !important;
 }
 
 .leaflet-popup-content {
-  margin: 12px !important;
-  font-family: var(--font-work-sans), sans-serif !important;
+  margin: 0 !important;
+  font-family: var(--font-sans), system-ui, sans-serif !important;
   font-size: 0.875rem !important;
-  line-height: 1.25 !important;
+  line-height: 1.35 !important;
 }
 
 .leaflet-popup-close-button {
@@ -744,17 +759,52 @@ body {
   border-bottom: none !important;
 }
 
-/* Dark mode map tile filter */
-.dark .leaflet-tile-container {
-  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+/* Smooth map tile transitions (native CartoDB light/dark tiles) */
+.leaflet-tile-container {
+  transition: opacity 0.2s ease-in-out;
 }
-
-
-
 
 /* ================================================================== */
 /*  LEAFLET MAP & MARKERS                                              */
 /* ================================================================== */
+
+/* Dropped pin drop and pulse animation */
+@keyframes pin-drop-bounce {
+  0% {
+    transform: translateY(-24px) scale(0.6);
+    opacity: 0;
+  }
+  50% {
+    transform: translateY(2px) scale(1.1);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(-3px) scale(0.96);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-pin-drop {
+  animation: pin-drop-bounce 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes pin-pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.animate-pin-ring {
+  animation: pin-pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
 
 /* Leaflet marker styling */
 .keepcheck-marker {

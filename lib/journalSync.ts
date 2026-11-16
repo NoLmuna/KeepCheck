@@ -321,6 +321,8 @@ export function syncJournal(uid: string, signal: AbortSignal): Promise<void> {
   if (running) return running;
   running = (async () => {
     if (signal.aborted || !navigator.onLine) return;
+    // Claim any unowned local records for the current user
+    await associateLocalRecordsWithUser(uid);
     // Preserve legacy cloud-only records on the first normalized sync.
     await importLegacyCloud(uid);
     let photoError: unknown;

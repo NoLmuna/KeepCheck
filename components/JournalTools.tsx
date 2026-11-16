@@ -5,20 +5,13 @@ import {
   X,
   BarChart3,
   Folder,
-  Database,
   Share2,
   Edit3,
   Trash2,
-  Download,
-  Upload,
-  RefreshCw,
-  Sun,
-  Moon,
+  Plus,
 } from "lucide-react";
-import { db } from "@/app/db";
 import type { Spot, VisitLog, SpotCollection } from "@/lib/models";
-import { makeBackup, restoreBackup, backupCsv } from "@/lib/journalBackup";
-import { downloadBlob, shareCard } from "@/lib/journalMedia";
+import { shareCard } from "@/lib/journalMedia";
 import {
   saveCollection,
   deleteCollection,
@@ -38,45 +31,26 @@ export default function JournalTools({
   collections: SpotCollection[];
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<"insights" | "collections" | "data">("insights");
+  const [tab, setTab] = useState<"insights" | "collections">("insights");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [editing, setEditing] = useState<SpotCollection>();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [importData, setImportData] = useState<unknown>();
 
   const dialog = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const previous = document.activeElement;
-    const root = dialog.current;
-    root?.querySelector<HTMLButtonElement>("button")?.focus();
-    const trap = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || !root) return;
-      const elements = [
-        ...root.querySelectorAll<HTMLElement>(
-          "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]",
-        ),
-      ].filter((el) => el.getClientRects().length);
-      const first = elements[0],
-        last = elements[elements.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
       }
-    };
-    root?.addEventListener("keydown", trap);
-    return () => {
-      root?.removeEventListener("keydown", trap);
-      if (previous instanceof HTMLElement) previous.focus();
-    };
-  }, []);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
-  const file = useRef<HTMLInputElement>(null);
   const stats = journalInsights(spots, visits);
 
   async function run(fn: () => Promise<void>) {
@@ -86,7 +60,7 @@ export default function JournalTools({
       await fn();
     } catch (e) {
       setMessage(
-        e instanceof Error ? e.message : "Unable to complete this action",
+        e instanceof Error ? e.message : "Unable to complete this action"
       );
     } finally {
       setBusy(false);
@@ -95,48 +69,42 @@ export default function JournalTools({
 
   return (
     <div
-      className="fixed inset-0 z-[900] flex items-end justify-center bg-black/50 p-0 sm:p-4 sm:items-center backdrop-blur-2xs"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.stopPropagation();
-          onClose();
-        }
+      className="fixed inset-0 z-[900] flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs animate-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <section
         ref={dialog}
         role="dialog"
         aria-modal="true"
-        aria-label="Journal tools"
-        className="journal-sheet max-h-[90dvh] w-full max-w-xl overflow-auto rounded-t-3xl sm:rounded-3xl bg-white dark:bg-[#1c1917] border border-stone-200 dark:border-stone-800 p-5 sm:p-6 text-stone-900 dark:text-stone-100 shadow-2xl flex flex-col gap-4"
+        aria-label="My Lists & Stats"
+        className="w-full max-w-xl max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-800 p-5 sm:p-6 text-stone-900 dark:text-stone-100 shadow-2xl flex flex-col gap-4 animate-modal-enter"
       >
         {/* Header */}
         <div className="flex justify-between items-center pb-2 border-b border-stone-100 dark:border-stone-800">
           <div>
-            <h2 className="text-xl sm:text-2xl font-serif font-bold text-stone-900 dark:text-stone-100">
-              Your KeepCheck
+            <h2 className="text-xl sm:text-2xl font-serif font-bold text-stone-900 dark:text-white">
+              My Lists & Stats
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              Insights, collections & offline data management
+              Personal insights, rankings & custom spot collections
             </p>
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              aria-label="Close journal tools"
-              onClick={onClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          <button
+            aria-label="Close modal"
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation (2 clean tabs) */}
         <nav className="flex gap-1.5 p-1 bg-stone-100 dark:bg-stone-800/80 rounded-xl">
           {[
             { id: "insights", label: "Insights", icon: BarChart3 },
             { id: "collections", label: "Collections", icon: Folder },
-            { id: "data", label: "Data & Backup", icon: Database },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -146,7 +114,7 @@ export default function JournalTools({
               onClick={() => setTab(id as typeof tab)}
               className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 tab === id
-                  ? "bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs"
+                  ? "bg-white dark:bg-[#251D18] text-stone-900 dark:text-stone-100 shadow-xs"
                   : "text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200"
               }`}
             >
@@ -159,15 +127,11 @@ export default function JournalTools({
         {/* Tab 1: Insights */}
         {tab === "insights" && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-stone-900 dark:text-stone-100">
-                Food & Café Statistics
-              </h3>
-              <span className="text-[11px] text-stone-500 dark:text-stone-400">
-                Computed locally on device
-              </span>
-            </div>
+            <h3 className="text-sm font-bold text-stone-900 dark:text-stone-100">
+              Food & Café Statistics
+            </h3>
 
+            {/* High-Contrast Stat Cards (Dark Mode Fix) */}
             <dl className="grid grid-cols-2 gap-2.5">
               {[
                 ["Visited Venues", stats.visited],
@@ -183,30 +147,30 @@ export default function JournalTools({
               ].map(([label, value]) => (
                 <div
                   key={label}
-                  className="rounded-xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/80 dark:bg-stone-850/60 p-3"
+                  className="rounded-xl border border-stone-200/90 dark:border-stone-700 bg-stone-50 dark:bg-[#251D18] p-3.5 shadow-2xs"
                 >
-                  <dt className="text-[11px] font-medium text-stone-500 dark:text-stone-400">
+                  <dt className="text-[11px] font-semibold text-stone-600 dark:text-stone-300">
                     {label}
                   </dt>
-                  <dd className="text-lg font-serif font-bold text-stone-900 dark:text-stone-100 capitalize mt-0.5">
+                  <dd className="text-xl font-serif font-bold text-stone-900 dark:text-white capitalize mt-1 tabular-nums">
                     {value}
                   </dd>
                 </div>
               ))}
             </dl>
 
-            <div className="space-y-1.5 pt-2 border-t border-stone-100 dark:border-stone-800">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400">
-                Top Localities
+            <div className="space-y-2 pt-2 border-t border-stone-100 dark:border-stone-800">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300">
+                Top Neighborhoods & Cities
               </h4>
               {stats.localities.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {stats.localities.map(([localName, count]) => (
                     <span
                       key={localName}
-                      className="px-2.5 py-1 rounded-lg text-xs bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200/80 dark:border-stone-700"
+                      className="px-2.5 py-1 rounded-lg text-xs bg-stone-100 dark:bg-[#251D18] text-stone-700 dark:text-stone-200 border border-stone-200 dark:border-stone-700"
                     >
-                      {localName} <strong className="text-amber-700 dark:text-amber-400">· {count}</strong>
+                      {localName} <strong className="text-amber-700 dark:text-amber-400 tabular-nums">· {count}</strong>
                     </span>
                   ))}
                 </div>
@@ -221,7 +185,7 @@ export default function JournalTools({
         {tab === "collections" && (
           <div className="space-y-4">
             <form
-              className="space-y-2.5 p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-stone-200 dark:border-stone-800"
+              className="space-y-2.5 p-4 rounded-xl bg-stone-50 dark:bg-[#251D18] border border-stone-200 dark:border-stone-700"
               onSubmit={(e) => {
                 e.preventDefault();
                 void run(async () => {
@@ -233,7 +197,7 @@ export default function JournalTools({
                 });
               }}
             >
-              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300">
                 {editing ? "Edit Collection" : "Create New Collection"}
               </h4>
               <div>
@@ -243,7 +207,7 @@ export default function JournalTools({
                   placeholder="e.g. Best Matchas in Town, Date Night Spots…"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full h-9 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
+                  className="w-full h-9 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-[#1C1612] text-xs text-stone-900 dark:text-white outline-none focus:border-amber-600"
                 />
               </div>
               <div>
@@ -253,14 +217,13 @@ export default function JournalTools({
                   placeholder="Optional notes about this collection…"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600 resize-none"
+                  className="w-full p-2.5 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-[#1C1612] text-xs text-stone-900 dark:text-white outline-none focus:border-amber-600 resize-none"
                 />
               </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
                   disabled={busy}
-                  aria-label="Save collection"
                   className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer disabled:opacity-50"
                 >
                   {editing ? "Update Collection" : "+ Create Collection"}
@@ -283,24 +246,24 @@ export default function JournalTools({
 
             {/* List of existing collections */}
             <div className="space-y-2.5">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300">
                 Your Collections ({collections.length})
               </h4>
               {collections.map((c) => (
                 <article
                   key={c.id}
-                  className="rounded-xl border border-stone-200/80 dark:border-stone-800 bg-white dark:bg-stone-850 p-3 space-y-1.5"
+                  className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-[#251D18] p-3.5 space-y-2 shadow-2xs"
                 >
                   <div className="flex items-start justify-between">
                     <div>
-                      <h5 className="font-bold text-sm text-stone-900 dark:text-stone-100">
+                      <h5 className="font-bold text-sm text-stone-900 dark:text-white">
                         {c.name}
                       </h5>
                       {c.description && (
-                        <p className="text-xs text-stone-500 dark:text-stone-400">{c.description}</p>
+                        <p className="text-xs text-stone-500 dark:text-stone-300">{c.description}</p>
                       )}
                     </div>
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 tabular-nums">
                       {spots.filter((s) => s.collectionIds?.includes(c.id)).length} spots
                     </span>
                   </div>
@@ -314,7 +277,7 @@ export default function JournalTools({
                         setName(c.name);
                         setDescription(c.description ?? "");
                       }}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white px-2 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 dark:text-stone-200 hover:text-stone-900 dark:hover:text-white px-2 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors cursor-pointer"
                     >
                       <Edit3 className="w-3 h-3" />
                       <span>Edit</span>
@@ -335,7 +298,7 @@ export default function JournalTools({
                           ]),
                         );
                       }}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white px-2 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 dark:text-stone-200 hover:text-stone-900 dark:hover:text-white px-2 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors cursor-pointer"
                     >
                       <Share2 className="w-3 h-3 text-amber-700 dark:text-amber-500" />
                       <span>Share Card</span>
@@ -358,7 +321,7 @@ export default function JournalTools({
                 </article>
               ))}
               {collections.length === 0 && (
-                <p className="text-xs text-stone-500 dark:text-stone-400 p-3 text-center bg-stone-50 dark:bg-stone-800/40 rounded-xl">
+                <p className="text-xs text-stone-500 dark:text-stone-400 p-4 text-center bg-stone-50 dark:bg-[#251D18] rounded-xl border border-stone-200 dark:border-stone-800">
                   No collections yet. Group your saved spots into custom lists above!
                 </p>
               )}
@@ -366,125 +329,7 @@ export default function JournalTools({
           </div>
         )}
 
-        {/* Tab 3: Data & Backup */}
-        {tab === "data" && (
-          <div className="space-y-4">
-            <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
-              Save a local copy of your places, notes, and photos, or restore from a previously exported backup file.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                type="button"
-                disabled={busy}
-                aria-label="Download Full Backup"
-                onClick={() => {
-                  void run(async () => {
-                    downloadBlob(
-                      new Blob([JSON.stringify(await makeBackup(uid))], {
-                        type: "application/json",
-                      }),
-                      "keepcheck-backup.json",
-                    );
-                    setMessage("Backup file downloaded successfully!");
-                  });
-                }}
-                className="p-3.5 bg-stone-100 hover:bg-stone-200/80 dark:bg-stone-800 dark:hover:bg-stone-700/90 border border-stone-300 dark:border-stone-700 rounded-2xl text-left cursor-pointer transition-colors shadow-2xs group"
-              >
-                <div className="flex items-center gap-2 text-xs font-bold text-stone-900 dark:text-white mb-1">
-                  <Download className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 group-hover:scale-110 transition-transform" />
-                  <span>Download Full Backup</span>
-                </div>
-                <p className="text-[11px] text-stone-600 dark:text-stone-300 leading-normal">
-                  Save a copy of all your places, notes, and photos to your device.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                disabled={busy}
-                aria-label="Export to Spreadsheet"
-                onClick={() => {
-                  void run(async () => {
-                    downloadBlob(
-                      new Blob([backupCsv(await makeBackup(uid))], {
-                        type: "text/csv;charset=utf-8",
-                      }),
-                      "keepcheck-journal.csv",
-                    );
-                    setMessage("Spreadsheet (CSV) downloaded successfully!");
-                  });
-                }}
-                className="p-3.5 bg-stone-100 hover:bg-stone-200/80 dark:bg-stone-800 dark:hover:bg-stone-700/90 border border-stone-300 dark:border-stone-700 rounded-2xl text-left cursor-pointer transition-colors shadow-2xs group"
-              >
-                <div className="flex items-center gap-2 text-xs font-bold text-stone-900 dark:text-white mb-1">
-                  <Download className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
-                  <span>Export to Spreadsheet (CSV)</span>
-                </div>
-                <p className="text-[11px] text-stone-600 dark:text-stone-300 leading-normal">
-                  Open your saved spots in Excel or Google Sheets.
-                </p>
-              </button>
-            </div>
-
-            {/* Restore File Input */}
-            <div className="p-3.5 bg-stone-50 dark:bg-stone-850 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-2.5">
-              <div>
-                <h4 className="text-xs font-bold text-stone-900 dark:text-white">
-                  Restore from a backup file
-                </h4>
-                <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                  Select a KeepCheck backup file from your device to merge your spots.
-                </p>
-              </div>
-
-              <input
-                ref={file}
-                aria-label="Select backup file"
-                type="file"
-                accept="application/json,.json"
-                disabled={busy}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  void run(async () => {
-                    if (f.size > 100 * 1024 * 1024)
-                      throw new Error("Backup file exceeds the 100 MB limit");
-                    setImportData(JSON.parse(await f.text()) as unknown);
-                    setMessage("Backup file verified. Tap confirm to merge your places.");
-                  });
-                }}
-                className="w-full text-xs text-stone-700 dark:text-stone-300 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-amber-100 dark:file:bg-amber-950/70 file:text-amber-900 dark:file:text-amber-300 hover:file:bg-amber-200 cursor-pointer"
-              />
-
-              {importData !== undefined && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  aria-label="Confirm restore"
-                  onClick={() => {
-                    void run(async () => {
-                      const count = await restoreBackup(importData, uid);
-                      setImportData(undefined);
-                      if (file.current) file.current.value = "";
-                      setMessage(`Successfully restored ${count} spots!`);
-                    });
-                  }}
-                  className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>Confirm and Restore Places</span>
-                </button>
-              )}
-            </div>
-
-            <p className="text-[11px] text-stone-500 dark:text-stone-400">
-              Your places are stored safely on this device and automatically sync to your Google account when signed in.
-            </p>
-          </div>
-        )}
-
-        {/* Status Message Footer */}
+        {/* Status Feedback */}
         {message && (
           <div
             role="status"

@@ -10,8 +10,6 @@ import {
   MapPin,
   Plus,
   BookOpen,
-  SlidersHorizontal,
-  Cloud,
   CheckCircle2,
   RefreshCw,
   LogOut,
@@ -23,6 +21,7 @@ import {
   ChevronDown,
   WifiOff,
   AlertCircle,
+  Database,
 } from "lucide-react";
 import { db } from "@/app/db";
 import { useAuth } from "@/lib/auth";
@@ -37,7 +36,7 @@ import {
 import { journalVenue, haversine, type Venue } from "@/lib/geo";
 import { searchVenues, autoResolveLegacySpotLocations } from "@/lib/osm";
 import VenueSheet, { type SaveVenue } from "./VenueSheet";
-import JournalFilters, { StatusTabs } from "./JournalFilters";
+import JournalFilters, { StatusTabs, CategoryPills } from "./JournalFilters";
 import SpotCard from "./SpotCard";
 import LogSpotModal from "./LogSpotModal";
 import ThemeToggle from "./ThemeToggle";
@@ -45,10 +44,11 @@ import type { Spot } from "@/lib/models";
 import { GoogleIcon } from "./LandingPage";
 
 const JournalTools = dynamic(() => import("./JournalTools"), { ssr: false });
+const AccountDataModal = dynamic(() => import("./AccountDataModal"), { ssr: false });
 const SpotsMap = dynamic(() => import("./SpotsMap"), {
   ssr: false,
   loading: () => (
-    <div className="h-full w-full flex flex-col items-center justify-center bg-[#F8F6F2] text-stone-500 gap-3">
+    <div className="h-full w-full flex flex-col items-center justify-center bg-[#FAF7F2] dark:bg-[#15110F] text-stone-500 gap-3">
       <div className="w-8 h-8 border-3 border-stone-300 border-t-amber-700 rounded-full animate-spin" />
       <span className="text-xs font-medium">Loading discovery map…</span>
     </div>
@@ -62,10 +62,15 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
 
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [selected, setSelected] = useState<Venue | null>(null);
-  const handleVenueSelection = useCallback((venue: Venue | null) => {
+  const [initialAction, setInitialAction] = useState<"visit" | "wishlist" | undefined>(undefined);
+
+  const handleVenueSelection = useCallback((venue: Venue | null, action?: "visit" | "wishlist") => {
     setSelected(venue);
+    setInitialAction(action);
   }, []);
+
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [accountDataOpen, setAccountDataOpen] = useState(false);
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"map" | "journal">(
@@ -199,7 +204,6 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           controller.signal
         );
         if (!controller.signal.aborted && found) {
-          // Exclude already saved matches
           const savedNames = new Set(spots.map((s) => s.name.toLowerCase()));
           const newPlaces = found.filter(
             (p) => !savedNames.has(p.name.toLowerCase())
@@ -222,6 +226,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
 
   const selectSpot = useCallback((spot: Spot) => {
     setSelected(journalVenue(spot));
+    setInitialAction(undefined);
   }, []);
 
   // Auto-resolve legacy spots with raw coordinates in background
@@ -274,6 +279,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
         duplicateId,
       );
       setSelected(journalVenue(spot));
+      setInitialAction(undefined);
     },
     [uid],
   );
@@ -282,14 +288,16 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
     if (filtered.length) {
       const random = filtered[Math.floor(Math.random() * filtered.length)];
       setSelected(journalVenue(random));
+      setInitialAction(undefined);
     }
   }
 
-  // Keyboard shortcut for search
+  // Keyboard shortcut for search & closing overlays
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setToolsOpen(false);
+        setAccountDataOpen(false);
         setUserMenuOpen(false);
         setLogModalOpen(false);
         setShowSearchDropdown(false);
@@ -315,11 +323,11 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
   }, []);
 
   return (
-    <main className="journal-app h-[100dvh] w-full flex flex-col bg-[#F8F6F2] dark:bg-[#120e0b] text-stone-900 dark:text-stone-100 overflow-hidden font-sans select-none">
+    <main className="journal-app h-[100dvh] w-full flex flex-col bg-[#FAF7F2] dark:bg-[#15110F] text-[#2C221E] dark:text-[#F8F4EE] overflow-hidden font-sans select-none">
       {/* ------------------------------------------------------------------ */}
-      {/*  Top Compact App Header (h-14, border-stone-200)                    */}
+      {/*  Top Compact App Header (h-14, warm border, clean hierarchy)        */}
       {/* ------------------------------------------------------------------ */}
-      <header className="h-14 bg-white dark:bg-[#18181b] border-b border-stone-200/90 dark:border-stone-800 px-3 sm:px-5 flex items-center justify-between shrink-0 z-30 shadow-2xs">
+      <header className="h-14 bg-white dark:bg-[#1E1815] border-b border-stone-200/90 dark:border-stone-800 px-3 sm:px-5 flex items-center justify-between shrink-0 z-30 shadow-2xs">
         {/* Left: Brand + Status Pill */}
         <div className="flex items-center gap-3">
           <Link
@@ -328,7 +336,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
             className="flex items-center gap-2 group cursor-pointer"
             aria-label="KeepCheck home"
           >
-            <div className="w-8 h-8 rounded-lg overflow-hidden border border-stone-200/80 dark:border-stone-700 bg-[#F8F6F2] dark:bg-stone-800 flex items-center justify-center shadow-2xs group-hover:border-amber-400 dark:group-hover:border-amber-500 transition-colors">
+            <div className="w-8 h-8 rounded-lg overflow-hidden border border-stone-200/80 dark:border-stone-700 bg-[#FAF7F2] dark:bg-stone-800 flex items-center justify-center shadow-2xs group-hover:border-amber-500 transition-colors">
               <Image
                 src="/KeepCheck-Logo.png"
                 alt="KeepCheck logo"
@@ -343,12 +351,17 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
             </span>
           </Link>
 
-          {/* Subtle Status Pill: Saved / Syncing / Offline */}
+          {/* Sync Status Badge: Reassuring green "Synced", "Syncing", or calm "Saved on device" */}
           <div className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-stone-100 dark:bg-stone-800 border border-stone-200/90 dark:border-stone-700 text-stone-700 dark:text-stone-200 shadow-2xs">
             {!context.online ? (
               <>
                 <WifiOff className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400" />
                 <span>Offline</span>
+              </>
+            ) : isGuest || !user ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-stone-400 dark:bg-stone-500" />
+                <span>Saved on device</span>
               </>
             ) : syncError ? (
               <span title={syncError} className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
@@ -358,12 +371,12 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
             ) : pending > 0 ? (
               <>
                 <RefreshCw className="w-3.5 h-3.5 text-amber-600 animate-spin" />
-                <span>Syncing ({pending})</span>
+                <span className="tabular-nums">Syncing ({pending})</span>
               </>
             ) : (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-xs" />
-                <span>Saved</span>
+                <span className="text-emerald-800 dark:text-emerald-300">Synced</span>
               </>
             )}
           </div>
@@ -371,7 +384,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
 
         {/* Right: Controls & User Profile */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Primary CTA: Save Spot (Desktop only; mobile uses prominent bottom nav) */}
+          {/* Primary CTA: Save Spot */}
           <button
             type="button"
             onClick={() => setLogModalOpen(true)}
@@ -385,7 +398,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           {/* Light / Dark Mode Toggle */}
           <ThemeToggle />
 
-          {/* My Lists & Stats Button (Desktop only; mobile uses bottom nav) */}
+          {/* My Lists & Stats Button */}
           <button
             type="button"
             onClick={() => setToolsOpen(true)}
@@ -422,15 +435,26 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                 <ChevronDown className="w-3.5 h-3.5 text-stone-400" />
               </button>
             ) : isGuest ? (
-              <button
-                type="button"
-                onClick={() => signInWithGoogle()}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-stone-850 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-semibold rounded-lg border border-stone-300 dark:border-stone-700 shadow-2xs transition-colors cursor-pointer"
-              >
-                <GoogleIcon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Sign in with Google</span>
-                <span className="sm:hidden">Sign in</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAccountDataOpen(true)}
+                  aria-label="Account and Data Backup"
+                  title="Account & Data Backup"
+                  className="w-8 h-8 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 flex items-center justify-center transition-colors cursor-pointer border border-stone-200 dark:border-stone-700"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => signInWithGoogle()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold rounded-lg border border-stone-300 dark:border-stone-700 shadow-2xs transition-colors cursor-pointer"
+                >
+                  <GoogleIcon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Sign in with Google</span>
+                  <span className="sm:hidden">Sign in</span>
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
@@ -443,9 +467,9 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
 
             {/* Profile Dropdown Menu */}
             {userMenuOpen && user && (
-              <div className="absolute right-0 top-full mt-2 z-50 w-64 bg-white dark:bg-[#1c1917] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl p-2.5 space-y-2 text-xs text-stone-900 dark:text-stone-100">
+              <div className="absolute right-0 top-full mt-2 z-50 w-64 bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl p-2.5 space-y-2 text-xs text-stone-900 dark:text-stone-100 animate-modal-enter">
                 {/* User Info Header */}
-                <div className="p-2 bg-[#F8F6F2] dark:bg-stone-800/60 rounded-xl flex items-center gap-2.5 border border-stone-200/60 dark:border-stone-700">
+                <div className="p-2.5 bg-[#FAF7F2] dark:bg-stone-800/60 rounded-xl flex items-center gap-2.5 border border-stone-200/60 dark:border-stone-700">
                   {user.photoURL ? (
                     <img
                       src={user.photoURL}
@@ -466,16 +490,29 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                   </div>
                 </div>
 
-                {/* Cloud Sync Status item */}
+                {/* Cloud Sync Status */}
                 <div className="px-2.5 py-1.5 text-stone-600 dark:text-stone-400 flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2">
                   <span>Cloud Sync</span>
                   <span className="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    {pending > 0 ? `${pending} pending` : "Up to date"}
+                    <span className="tabular-nums">{pending > 0 ? `${pending} pending` : "Up to date"}</span>
                   </span>
                 </div>
 
-                {/* Menu Action: Backup & Data */}
+                {/* Menu Action 1: Dedicated Account & Data */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    setAccountDataOpen(true);
+                  }}
+                  className="w-full px-2.5 py-2 text-left font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-lg flex items-center gap-2 cursor-pointer transition-colors"
+                >
+                  <Database className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                  <span>Account & Data (Backup & CSV)</span>
+                </button>
+
+                {/* Menu Action 2: My Lists & Stats */}
                 <button
                   type="button"
                   onClick={() => {
@@ -484,8 +521,8 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                   }}
                   className="w-full px-2.5 py-2 text-left font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-lg flex items-center gap-2 cursor-pointer transition-colors"
                 >
-                  <Download className="w-4 h-4 text-stone-500 dark:text-stone-400" />
-                  <span>Backup & Data</span>
+                  <Folder className="w-4 h-4 text-stone-500 dark:text-stone-400" />
+                  <span>My Lists & Stats</span>
                 </button>
 
                 {/* Sign Out Action */}
@@ -512,51 +549,50 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
       {/*  Main Content Workspace                                            */}
       {/* ------------------------------------------------------------------ */}
       <div className="flex-1 relative flex overflow-hidden min-h-0">
-        {/* ---------------------------------------------------------------- */}
-        {/*  Desktop Left Sidebar (w-[400px] lg:w-[430px])                   */}
-        {/*  On mobile: only rendered if mobileTab === "journal"             */}
-        {/* ---------------------------------------------------------------- */}
+        {/* Left Sidebar */}
         <aside
-          className={`w-full md:w-[400px] lg:w-[430px] shrink-0 bg-[#F8F6F2] dark:bg-[#120e0b] border-r border-stone-200/90 dark:border-stone-800 flex flex-col h-full z-10 ${
+          className={`w-full md:w-[400px] lg:w-[430px] shrink-0 bg-[#FAF7F2] dark:bg-[#15110F] border-r border-stone-200/90 dark:border-stone-800 flex flex-col h-full z-10 ${
             mobileTab === "map" ? "hidden md:flex" : "flex"
           }`}
         >
-          {/* If a venue is selected on desktop, show the VenueSheet in sidebar */}
           {selected ? (
-            <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-[#18181b]">
+            <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-[#1C1612]">
               <VenueSheet
                 embedded
                 venue={selected}
                 collections={collections}
                 position={context.position}
                 online={context.online}
-                onClose={() => setSelected(null)}
+                initialAction={initialAction}
+                onClose={() => {
+                  setSelected(null);
+                  setInitialAction(undefined);
+                }}
                 onSave={save}
               />
             </div>
           ) : (
             <>
-              {/* Search & Filter Header (p-4 bg-white border-b) */}
-              <div className="p-3.5 sm:p-4 bg-white dark:bg-[#18181b] border-b border-stone-200/90 dark:border-stone-800 space-y-3 shrink-0">
-                {/* Search Input with Photon Autocomplete */}
+              {/* Search & Streamlined Filter Header */}
+              <div className="p-3.5 sm:p-4 bg-white dark:bg-[#1E1815] border-b border-stone-200/90 dark:border-stone-800 space-y-2.5 shrink-0 shadow-2xs">
+                {/* Search Input with Autocomplete */}
                 <div className="relative">
                   <div className="relative flex items-center">
-                    <Search className="absolute left-3 w-4 h-4 text-stone-400 dark:text-stone-500 pointer-events-none" />
+                    <Search className="absolute left-3 w-4 h-4 text-stone-400 dark:text-stone-400 pointer-events-none" />
                     <input
                       aria-label="Search saved venues"
                       placeholder="Search saved spots or places…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full h-10 pl-9 pr-8 rounded-xl bg-stone-100 dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 focus:bg-white dark:focus:bg-stone-900 text-xs sm:text-sm text-stone-900 dark:text-stone-100 border border-stone-200/70 dark:border-stone-700 focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 outline-none transition-all placeholder:text-stone-400 dark:placeholder:text-stone-500"
+                      className="w-full h-9.5 pl-9 pr-8 rounded-xl bg-stone-100 dark:bg-[#15110F] hover:bg-stone-50 dark:hover:bg-stone-900 focus:bg-white dark:focus:bg-[#15110F] text-xs sm:text-sm text-stone-900 dark:text-stone-100 border border-stone-200/80 dark:border-stone-700 focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 outline-none transition-all placeholder:text-stone-400 dark:placeholder:text-stone-400"
                     />
                     {searchingPhoton && (
                       <div className="absolute right-3 w-3.5 h-3.5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
                     )}
                   </div>
 
-                  {/* Photon Dropdown Results */}
                   {showSearchDropdown && photonResults.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full mt-1.5 z-40 max-h-56 overflow-y-auto bg-white dark:bg-[#1c1917] border border-stone-200 dark:border-stone-700 rounded-xl shadow-lg divide-y divide-stone-100 dark:divide-stone-800">
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-40 max-h-56 overflow-y-auto bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-700 rounded-xl shadow-lg divide-y divide-stone-100 dark:divide-stone-800">
                       <div className="p-2 bg-stone-50 dark:bg-stone-800 text-[11px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
                         Discovered Places (Tap to Log)
                       </div>
@@ -566,6 +602,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                           type="button"
                           onClick={() => {
                             setSelected(place);
+                            setInitialAction("visit");
                             setShowSearchDropdown(false);
                           }}
                           className="w-full p-2.5 text-left hover:bg-amber-50/50 dark:hover:bg-stone-800/60 flex items-start gap-2.5 transition-colors cursor-pointer"
@@ -585,7 +622,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                   )}
                 </div>
 
-                {/* Segmented Status Tabs + Filters Button */}
+                {/* Filter Row 1: Status Tabs (All / Visited / Want to Try) + More Filters */}
                 <div className="flex items-center justify-between gap-2">
                   <StatusTabs value={filters} onChange={setFilters} />
                   <JournalFilters
@@ -597,12 +634,17 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                     canPick={!!filtered.length}
                   />
                 </div>
+
+                {/* Filter Row 2: Clean Category Scannable Pills */}
+                <CategoryPills value={filters} onChange={setFilters} />
               </div>
 
               {/* Scrollable Spot Card List */}
               <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
                 <div className="flex items-center justify-between px-1 text-xs text-stone-500 dark:text-stone-400 font-medium">
-                  <span>{filtered.length} {filtered.length === 1 ? "spot" : "spots"} saved</span>
+                  <span className="tabular-nums">
+                    {filtered.length} {filtered.length === 1 ? "spot" : "spots"} saved
+                  </span>
                   {context.position && <span>Sorted by GPS distance</span>}
                 </div>
 
@@ -621,7 +663,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                 ))}
 
                 {filtered.length === 0 && (
-                  <div className="p-8 text-center bg-white dark:bg-[#1c1917] rounded-2xl border border-stone-200/80 dark:border-stone-800 my-4 space-y-3 shadow-2xs">
+                  <div className="p-8 text-center bg-white dark:bg-[#1E1815] rounded-2xl border border-stone-200/80 dark:border-stone-800 my-4 space-y-3 shadow-2xs">
                     <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 flex items-center justify-center mx-auto shadow-2xs">
                       <Sparkles className="w-6 h-6 text-amber-700 dark:text-amber-400" />
                     </div>
@@ -691,10 +733,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           )}
         </aside>
 
-        {/* ---------------------------------------------------------------- */}
-        {/*  Right Interactive Map Canvas                                    */}
-        {/*  Always visible on desktop split-screen; on mobile when tab==='map' */}
-        {/* ---------------------------------------------------------------- */}
+        {/* Right Interactive Map Canvas */}
         <div
           className={`flex-1 relative h-full min-h-0 ${
             mobileTab === "journal" ? "hidden md:block" : "block"
@@ -714,15 +753,11 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
         </div>
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/*  Mobile Bottom Navigation Tab Bar (< 768px)                         */}
-      {/* ------------------------------------------------------------------ */}
-      <nav className="md:hidden h-14 bg-white dark:bg-[#18181b] border-t border-stone-200/90 dark:border-stone-800 px-3 flex items-center justify-around shrink-0 z-30">
+      {/* Mobile Bottom Navigation (< 768px) */}
+      <nav className="md:hidden h-14 bg-white dark:bg-[#1E1815] border-t border-stone-200/90 dark:border-stone-800 px-3 flex items-center justify-around shrink-0 z-30">
         <button
           type="button"
-          onClick={() => {
-            setMobileTab("map");
-          }}
+          onClick={() => setMobileTab("map")}
           className={`flex flex-col items-center gap-0.5 text-[10px] font-bold cursor-pointer ${
             mobileTab === "map"
               ? "text-amber-700 dark:text-amber-400"
@@ -735,9 +770,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
 
         <button
           type="button"
-          onClick={() => {
-            setMobileTab("journal");
-          }}
+          onClick={() => setMobileTab("journal")}
           className={`flex flex-col items-center gap-0.5 text-[10px] font-bold cursor-pointer ${
             mobileTab === "journal"
               ? "text-amber-700 dark:text-amber-400"
@@ -745,7 +778,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           }`}
         >
           <BookOpen className="w-5 h-5" />
-          <span>My Journal ({spots.length})</span>
+          <span className="tabular-nums">My Journal ({spots.length})</span>
         </button>
 
         <button
@@ -769,9 +802,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
         </button>
       </nav>
 
-      {/* ------------------------------------------------------------------ */}
-      {/*  Modal Overlays: + Log Spot Modal & Journal Tools                   */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Modal Overlays */}
       {logModalOpen && (
         <LogSpotModal
           initialVenue={selected}
@@ -780,6 +811,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           onClose={() => setLogModalOpen(false)}
           onSaved={(newSpot) => {
             setSelected(journalVenue(newSpot));
+            setInitialAction(undefined);
             setLogModalOpen(false);
           }}
         />
@@ -792,6 +824,13 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           visits={visits}
           collections={collections}
           onClose={() => setToolsOpen(false)}
+        />
+      )}
+
+      {accountDataOpen && (
+        <AccountDataModal
+          uid={uid}
+          onClose={() => setAccountDataOpen(false)}
         />
       )}
     </main>
