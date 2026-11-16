@@ -87,12 +87,13 @@ export function categoryFor(value?: string): Venue["category"] {
     value === "tea"
   )
     return "coffee";
-  if (value === "bakery") return "bakery";
+  if (value === "bakery" || value === "pastry") return "bakery";
   if (value === "bar" || value === "pub") return "bar";
   if (
     value === "restaurant" ||
     value === "fast_food" ||
-    value === "ice_cream"
+    value === "ice_cream" ||
+    value === "food_court"
   )
     return "restaurant";
   return "other";

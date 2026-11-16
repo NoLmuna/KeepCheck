@@ -34,7 +34,7 @@ import {
 import {
   discoverVenues,
   fetchRoute,
-  reverseLocation,
+  lookupClickLocation,
   searchVenues,
   type Route,
 } from "@/lib/osm";
@@ -72,7 +72,7 @@ function getCategoryDisplayName(cat: Venue["category"]): string {
     case "bar":
       return "Bar / Pub";
     case "restaurant":
-      return "Restaurant";
+      return "Restaurant / Fast Food";
     default:
       return "Food & Drink";
   }
@@ -91,7 +91,6 @@ interface Props {
   pending: number;
   externalSelection: Venue | null;
   onSelection: (venue: Venue | null, initialAction?: "visit" | "wishlist") => void;
-  /** When true, map is displayed in desktop split-screen (no internal left panel duplicate) */
   splitPaneMode?: boolean;
 }
 
@@ -139,6 +138,11 @@ export default function SpotsMap({
   const [discoveryStatus, setDiscoveryStatus] = useState("Zoom in to see nearby spots");
   const lastScannedCenterRef = useRef<Coordinates | null>(null);
   const triggerDiscoveryRef = useRef<() => void>(() => {});
+
+  // Interactive nearby spots drawer state (bottom-right)
+  const [nearbyDrawerOpen, setNearbyDrawerOpen] = useState(false);
+  const nearbyDrawerRef = useRef<HTMLDivElement>(null);
+  const nearbyButtonRef = useRef<HTMLButtonElement>(null);
 
   const [routeMode, setRouteMode] = useState<"foot" | "driving">("foot");
   const [showRoute, setShowRoute] = useState(false);
@@ -230,22 +234,32 @@ export default function SpotsMap({
       setMapSearchQuery("");
       setMapSearchResults([]);
       setMapSearchOpen(false);
+      setNearbyDrawerOpen(false);
       flyToVenue(venue);
     },
     [flyToVenue],
   );
 
-  // Close search dropdown on click outside or Esc
+  // Close search dropdown or nearby drawer on click outside
   useEffect(() => {
-    if (!mapSearchOpen) return;
+    if (!mapSearchOpen && !nearbyDrawerOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (!mapSearchContainerRef.current?.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (mapSearchOpen && !mapSearchContainerRef.current?.contains(target)) {
         setMapSearchOpen(false);
+      }
+      if (
+        nearbyDrawerOpen &&
+        !nearbyDrawerRef.current?.contains(target) &&
+        !nearbyButtonRef.current?.contains(target)
+      ) {
+        setNearbyDrawerOpen(false);
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setMapSearchOpen(false);
+        setNearbyDrawerOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -254,7 +268,7 @@ export default function SpotsMap({
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [mapSearchOpen]);
+  }, [mapSearchOpen, nearbyDrawerOpen]);
 
   // Photon Autocomplete Search with Proximity Bias to Map Center
   useEffect(() => {
@@ -317,16 +331,53 @@ export default function SpotsMap({
     };
   }, [mapSearchQuery, saved, rawPosition]);
 
+  // Helper to render dropped pin with bounce animation
+  const renderDroppedPin = useCallback((latlng: L.LatLng) => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (droppedPinMarkerRef.current) {
+      droppedPinMarkerRef.current.remove();
+      droppedPinMarkerRef.current = null;
+    }
+    const pinDiv = document.createElement("div");
+    pinDiv.className = "relative flex items-center justify-center animate-pin-drop";
+    pinDiv.innerHTML = `
+      <div class="absolute -bottom-1 w-9 h-9 rounded-full bg-amber-500/35 animate-pin-ring pointer-events-none"></div>
+      <div class="relative z-10 w-9 h-9 rounded-full bg-gradient-to-tr from-amber-700 to-amber-500 text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-amber-600/30">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+      </div>
+    `;
+    const pinMarker = L.marker(latlng, {
+      icon: L.divIcon({
+        html: pinDiv,
+        className: "keepcheck-marker",
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
+      }),
+      zIndexOffset: 1500,
+    }).addTo(map);
+    droppedPinMarkerRef.current = pinMarker;
+  }, []);
+
   // Function to open the compact floating popover card directly above a pin/POI
   const openVenuePopover = useCallback(
-    (venue: Venue, latlng: L.LatLng, isLoading = false) => {
+    (
+      venue: Venue,
+      latlng: L.LatLng,
+      isLoading = false,
+      initialNearbyStores: Venue[] = [],
+      customSubtitle?: string,
+    ) => {
       const map = mapRef.current;
       if (!map) return;
 
       const activeVenue = { ...venue };
 
       const popupDiv = document.createElement("div");
-      popupDiv.className = "p-3 space-y-2 min-w-[210px] max-w-[265px] font-sans";
+      popupDiv.className = "p-3 space-y-2 min-w-[220px] max-w-[275px] font-sans";
 
       // Category Pill / Tag
       const categoryContainer = document.createElement("div");
@@ -351,7 +402,7 @@ export default function SpotsMap({
       addrEl.className = "text-[11px] text-stone-500 dark:text-stone-400 truncate";
       addrEl.textContent = isLoading
         ? "Resolving address…"
-        : (venue.location.locality || venue.location.formattedAddress || "Selected point");
+        : (customSubtitle || venue.location.locality || venue.location.formattedAddress || "Selected point");
       popupDiv.appendChild(addrEl);
 
       const btnContainer = document.createElement("div");
@@ -391,6 +442,59 @@ export default function SpotsMap({
       btnContainer.appendChild(btnWish);
       popupDiv.appendChild(btnContainer);
 
+      // Nearby places list container inside popover
+      const nearbyContainer = document.createElement("div");
+      nearbyContainer.className = "pt-2 border-t border-stone-200/80 dark:border-stone-700/80 space-y-1.5";
+
+      const renderNearbyList = (stores: Venue[]) => {
+        nearbyContainer.innerHTML = "";
+        if (!stores || stores.length === 0) return;
+        const header = document.createElement("div");
+        header.className = "text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider";
+        header.textContent = "Nearby places (tap to select)";
+        nearbyContainer.appendChild(header);
+
+        for (const store of stores.slice(0, 3)) {
+          const storeBtn = document.createElement("button");
+          storeBtn.type = "button";
+          storeBtn.className =
+            "w-full text-left p-1.5 rounded-lg bg-stone-50 dark:bg-stone-800/80 hover:bg-amber-50 dark:hover:bg-amber-950/60 border border-stone-200/60 dark:border-stone-700/60 flex items-center justify-between gap-1.5 cursor-pointer transition-colors";
+          const catSvg = categorySvgs[store.category] ?? categorySvgs.other;
+          const distM = haversine(
+            { lat: store.location.lat, lng: store.location.lng },
+            latlng,
+          );
+          storeBtn.innerHTML = `
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="w-4 h-4 flex items-center justify-center text-amber-700 dark:text-amber-400 shrink-0">${catSvg}</span>
+              <span class="text-xs font-semibold text-stone-800 dark:text-stone-200 truncate">${escapeHtml(store.name)}</span>
+            </div>
+            <span class="text-[10px] text-stone-400 shrink-0 font-mono">${Math.round(distM)}m</span>
+          `;
+          storeBtn.onclick = () => {
+            const storeLatLng = L.latLng(store.location.lat, store.location.lng);
+            if (droppedPinMarkerRef.current) {
+              droppedPinMarkerRef.current.setLatLng(storeLatLng);
+            }
+            Object.assign(activeVenue, store);
+            titleEl.textContent = store.name;
+            addrEl.textContent =
+              store.location.locality || store.location.formattedAddress || "";
+            const cName = getCategoryDisplayName(store.category);
+            const cSvg = categorySvgs[store.category] ?? categorySvgs.other;
+            catBadge.innerHTML = `<span class="w-3 h-3 flex items-center justify-center">${cSvg}</span><span>${cName}</span>`;
+            nearbyContainer.innerHTML = "";
+            popup.update();
+          };
+          nearbyContainer.appendChild(storeBtn);
+        }
+      };
+
+      if (initialNearbyStores.length > 0) {
+        renderNearbyList(initialNearbyStores);
+        popupDiv.appendChild(nearbyContainer);
+      }
+
       const popup = L.popup({
         offset: [0, -28],
         closeButton: true,
@@ -405,7 +509,7 @@ export default function SpotsMap({
         .setContent(popupDiv)
         .openOn(map);
 
-      // Smoothly pan into view if pin is near any viewport edge
+      // Smoothly pan into view
       try {
         map.panInside(latlng, {
           paddingTopLeft: [40, 180],
@@ -427,14 +531,29 @@ export default function SpotsMap({
       });
 
       return {
-        updateVenue: (updated: Venue) => {
+        updateVenue: (
+          updated: Venue,
+          newTitle?: string,
+          newSubtitle?: string,
+          updatedNearbyStores?: Venue[],
+        ) => {
           Object.assign(activeVenue, updated);
-          titleEl.textContent = updated.name;
+          titleEl.textContent = newTitle || updated.name;
           addrEl.textContent =
-            updated.location.locality || updated.location.formattedAddress;
+            newSubtitle || updated.location.locality || updated.location.formattedAddress;
           const newCatName = getCategoryDisplayName(updated.category);
           const newCatIconSvg = categorySvgs[updated.category] ?? categorySvgs.other;
           catBadge.innerHTML = `<span class="w-3 h-3 flex items-center justify-center">${newCatIconSvg}</span><span>${newCatName}</span>`;
+
+          if (updatedNearbyStores && updatedNearbyStores.length > 0) {
+            renderNearbyList(updatedNearbyStores);
+            if (!popupDiv.contains(nearbyContainer)) {
+              popupDiv.appendChild(nearbyContainer);
+            }
+          } else {
+            nearbyContainer.innerHTML = "";
+          }
+
           popup.update();
         },
       };
@@ -462,48 +581,22 @@ export default function SpotsMap({
       }
 
       // Drop visible pin with drop/pulse animation
-      if (droppedPinMarkerRef.current) {
-        droppedPinMarkerRef.current.remove();
-        droppedPinMarkerRef.current = null;
-      }
-
-      const pinDiv = document.createElement("div");
-      pinDiv.className = "relative flex items-center justify-center animate-pin-drop";
-      pinDiv.innerHTML = `
-        <div class="absolute -bottom-1 w-9 h-9 rounded-full bg-amber-500/35 animate-pin-ring pointer-events-none"></div>
-        <div class="relative z-10 w-9 h-9 rounded-full bg-gradient-to-tr from-amber-700 to-amber-500 text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-amber-600/30">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-            <circle cx="12" cy="10" r="3"/>
-          </svg>
-        </div>
-      `;
-
-      const pinMarker = L.marker(latlng, {
-        icon: L.divIcon({
-          html: pinDiv,
-          className: "keepcheck-marker",
-          iconSize: [36, 36],
-          iconAnchor: [18, 36],
-        }),
-        zIndexOffset: 1500,
-      }).addTo(map);
-
-      droppedPinMarkerRef.current = pinMarker;
+      renderDroppedPin(latlng);
 
       // Open floating popover directly above the map pin
       openVenuePopover(venue, latlng);
     },
-    [choose, openVenuePopover],
+    [choose, openVenuePopover, renderDroppedPin],
   );
 
-  // Initialize Leaflet map with CartoDB Voyager base tiles
+  // Initialize Leaflet map with CartoDB Voyager base tiles & maxNativeZoom
   useEffect(() => {
     if (!container.current) return;
     const p = initial.current;
     const map = L.map(container.current, {
       zoomControl: false,
       preferCanvas: true,
+      maxZoom: 20,
     }).setView(p ? [p.lat, p.lng] : [14.5995, 120.9842], p ? 16 : 13);
     mapRef.current = map;
 
@@ -512,26 +605,28 @@ export default function SpotsMap({
       ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${cartoKey}`
       : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 
+    // CARTO tiles stop at zoom 18; maxNativeZoom: 18 upscale smoothly up to zoom 20
     const tileLayer = L.tileLayer(voyagerTileUrl, {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       subdomains: "abcd",
-      maxZoom: 19,
+      maxNativeZoom: 18,
+      maxZoom: 20,
     }).addTo(map);
     tileLayerRef.current = tileLayer;
 
-    // Track zoom level & toggle detailed POI labels
+    // Track zoom level & toggle detailed POI labels (zoom >= 15)
     const updateZoomClass = () => {
       const z = map.getZoom();
       setCurrentZoom(z);
-      container.current?.classList.toggle("map-zoom-detailed", z >= 16);
+      container.current?.classList.toggle("map-zoom-detailed", z >= 15);
     };
     map.on("zoomend", updateZoomClass);
     updateZoomClass();
 
     // Track map panning to toggle "Search this area" prompt
     const handleMove = () => {
-      if (lastScannedCenterRef.current && map.getZoom() >= 15) {
+      if (lastScannedCenterRef.current && map.getZoom() >= 14) {
         const center = map.getCenter();
         const dist = haversine(
           { lat: center.lat, lng: center.lng },
@@ -544,8 +639,8 @@ export default function SpotsMap({
     };
     map.on("move", handleMove);
 
-    // Handle Map Click: Render Visible Pin + Open Compact Popover (NO SIDEBAR HIJACKING)
-    const handleMapClick = (e: L.LeafletMouseEvent) => {
+    // Handle Map Click: Snap to Store within 40m, or lookup real store / street name
+    const handleMapClick = async (e: L.LeafletMouseEvent) => {
       reverse.current?.abort();
       const controller = new AbortController();
       reverse.current = controller;
@@ -554,74 +649,76 @@ export default function SpotsMap({
       const lng = e.latlng.lng;
       const clickCoords = { lat, lng };
 
-      // 1. Remove any previous dropped pin marker
-      if (droppedPinMarkerRef.current) {
-        droppedPinMarkerRef.current.remove();
-        droppedPinMarkerRef.current = null;
+      // 1. Synchronously check if any cached POI is within 40m
+      const nearbyCached = poisRef.current
+        .map((v) => ({ venue: v, dist: haversine(clickCoords, v.location) }))
+        .filter((item) => item.dist <= 75)
+        .sort((a, b) => a.dist - b.dist);
+
+      const closest = nearbyCached[0];
+      if (closest && closest.dist <= 40) {
+        const store = closest.venue;
+        const snapLatLng = L.latLng(store.location.lat, store.location.lng);
+        renderDroppedPin(snapLatLng);
+        const otherNearby = nearbyCached.slice(1, 4).map((c) => c.venue);
+        openVenuePopover(store, snapLatLng, false, otherNearby);
+        return;
       }
 
-      // 2. Check if user clicked near an existing POI (within ~30 meters)
-      const nearbyPoi = poisRef.current.find(
-        (poi) => haversine(clickCoords, poi.location) <= 30,
-      );
-
-      const venueLocation = nearbyPoi
-        ? nearbyPoi.location
-        : {
-            lat,
-            lng,
-            formattedAddress: coordinateLabel(e.latlng),
-          };
-
-      const venueName = nearbyPoi ? nearbyPoi.name : "Dropped pin";
-      const venueCategory = nearbyPoi ? nearbyPoi.category : "other";
-
-      const venue: Venue = {
+      // 2. Open popover immediately with "Locating spot…" and drop pin at clicked coordinates
+      renderDroppedPin(e.latlng);
+      const tempVenue: Venue = {
         key: `pin-${lat.toFixed(5)}-${lng.toFixed(5)}`,
-        name: venueName,
-        category: venueCategory,
-        location: venueLocation,
+        name: "Locating spot…",
+        category: "other",
+        location: {
+          lat,
+          lng,
+          formattedAddress: coordinateLabel(clickCoords),
+        },
       };
+      const popoverHandle = openVenuePopover(tempVenue, e.latlng, true);
 
-      // 3. Render unmistakable pin marker with drop/pulse animation at those exact coordinates
-      const pinDiv = document.createElement("div");
-      pinDiv.className = "relative flex items-center justify-center animate-pin-drop";
-      pinDiv.innerHTML = `
-        <div class="absolute -bottom-1 w-9 h-9 rounded-full bg-amber-500/35 animate-pin-ring pointer-events-none"></div>
-        <div class="relative z-10 w-9 h-9 rounded-full bg-gradient-to-tr from-amber-700 to-amber-500 text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-amber-600/30">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-            <circle cx="12" cy="10" r="3"/>
-          </svg>
-        </div>
-      `;
-
-      const pinMarker = L.marker([lat, lng], {
-        icon: L.divIcon({
-          html: pinDiv,
-          className: "keepcheck-marker",
-          iconSize: [36, 36],
-          iconAnchor: [18, 36],
-        }),
-        zIndexOffset: 1500,
-      }).addTo(map);
-
-      droppedPinMarkerRef.current = pinMarker;
-
-      // 4. Open compact floating popover directly above the map pin
-      const popoverHandle = openVenuePopover(venue, e.latlng, !nearbyPoi);
-
-      // 5. Reverse geocode if not already known
-      if (!nearbyPoi) {
-        void reverseLocation(venueLocation, controller.signal).then((resolved) => {
-          if (!controller.signal.aborted && popoverHandle) {
-            popoverHandle.updateVenue({
-              ...venue,
-              name: resolved.locality || resolved.formattedAddress || "Dropped pin",
-              location: resolved,
-            });
+      // 3. Run fast 2500ms lookup (Photon reverse + Overpass around:50 + Nominatim)
+      try {
+        const resolved = await lookupClickLocation(
+          clickCoords,
+          poisRef.current,
+          controller.signal,
+        );
+        if (!controller.signal.aborted && popoverHandle) {
+          if (resolved.snappedVenue) {
+            // Snap the dropped pin marker to the storefront's exact coordinates
+            const storeLatLng = L.latLng(
+              resolved.snappedVenue.location.lat,
+              resolved.snappedVenue.location.lng,
+            );
+            if (droppedPinMarkerRef.current) {
+              droppedPinMarkerRef.current.setLatLng(storeLatLng);
+            }
+            popoverHandle.updateVenue(
+              resolved.snappedVenue,
+              resolved.title,
+              resolved.subtitle,
+              resolved.nearbyStores,
+            );
+          } else {
+            const fallbackVenue: Venue = {
+              key: `pin-${lat.toFixed(5)}-${lng.toFixed(5)}`,
+              name: resolved.title,
+              category: resolved.category,
+              location: resolved.location,
+            };
+            popoverHandle.updateVenue(
+              fallbackVenue,
+              resolved.title,
+              resolved.subtitle,
+              resolved.nearbyStores,
+            );
           }
-        });
+        }
+      } catch {
+        // Suppress abort
       }
     };
 
@@ -638,9 +735,9 @@ export default function SpotsMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [openVenuePopover]);
+  }, [openVenuePopover, renderDroppedPin]);
 
-  // Discover live POIs (capped at 40, zoom >= 15)
+  // Discover live POIs (zoom >= 14, capped at 40)
   useEffect(() => {
     let isMounted = true;
     const map = mapRef.current;
@@ -655,7 +752,7 @@ export default function SpotsMap({
 
       try {
         if (!(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
-        if (map.getZoom() < 15) {
+        if (map.getZoom() < 14) {
           setPois([]);
           setDiscoveryStatus("Zoom in to see nearby spots");
           setIsDiscovering(false);
@@ -806,11 +903,15 @@ export default function SpotsMap({
       }
     }
 
-    for (const venue of venues) {
+    venues.forEach((venue, index) => {
       let entry = markers.current.get(venue.key);
       const isSaved = !!venue.record;
       const isWish = venue.record?.status === "wishlist";
       const iconSvg = categorySvgs[venue.category] ?? categorySvgs.other;
+
+      // Nearest 20 discovered venues show store name labels; others show labels on hover
+      const showLabel = index < 20;
+      const labelClass = showLabel ? "poi-label" : "poi-label-hover";
 
       const html = isWish
         ? `<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md border-2 border-white ring-2 ring-indigo-300 transition-transform hover:scale-110">${bookmarkSvg}</div>`
@@ -824,7 +925,7 @@ export default function SpotsMap({
               <div class="pointer-events-auto w-6.5 h-6.5 rounded-full bg-white/95 dark:bg-[#201A16]/95 text-stone-600 dark:text-stone-300 flex items-center justify-center shadow-xs border border-stone-300/80 dark:border-stone-700/80 transition-all group-hover:scale-115 group-hover:border-amber-600 group-hover:text-amber-700 dark:group-hover:text-amber-400">
                 ${iconSvg}
               </div>
-              <span class="poi-label pointer-events-none select-none mt-1 px-1.5 py-0.5 max-w-[105px] truncate text-[10px] font-medium leading-none text-stone-700 dark:text-stone-200 bg-white/95 dark:bg-[#1E1815]/95 backdrop-blur-xs rounded shadow-2xs border border-stone-200/80 dark:border-stone-800 text-center">
+              <span class="${labelClass} pointer-events-none select-none mt-1 px-1.5 py-0.5 max-w-[105px] truncate text-[10px] font-medium leading-none text-stone-700 dark:text-stone-200 bg-white/95 dark:bg-[#1E1815]/95 backdrop-blur-xs rounded shadow-2xs border border-stone-200/80 dark:border-stone-800 text-center">
                 ${escapeHtml(venue.name)}
               </span>
             </div>`;
@@ -894,7 +995,7 @@ export default function SpotsMap({
       entry.marker.setZIndexOffset(
         venue.key === selected?.key ? 1000 : isSaved ? 500 : 0,
       );
-    }
+    });
   }, [
     filteredDiscoveredPois,
     saved,
@@ -1037,6 +1138,15 @@ export default function SpotsMap({
     }
   }
 
+  // Sorted discovered venues for the interactive bottom-right drawer
+  const sortedPois = useMemo(() => {
+    const center = mapRef.current?.getCenter() ?? rawPosition.current;
+    if (!center) return filteredDiscoveredPois;
+    return [...filteredDiscoveredPois].sort(
+      (a, b) => haversine(center, a.location) - haversine(center, b.location),
+    );
+  }, [filteredDiscoveredPois, rawPosition]);
+
   return (
     <div className="relative h-full w-full min-h-0 overflow-hidden bg-[#FAF7F2] dark:bg-[#15110F]">
       {/* Full-bleed Leaflet Map Canvas */}
@@ -1132,12 +1242,12 @@ export default function SpotsMap({
 
         {/* Area Discovery Pill Button */}
         <div className="pointer-events-auto flex items-center justify-center">
-          {currentZoom < 15 ? (
+          {currentZoom < 14 ? (
             <button
               type="button"
               onClick={() => {
                 const map = mapRef.current;
-                if (map) map.flyTo(map.getCenter(), 16, { duration: 0.8 });
+                if (map) map.flyTo(map.getCenter(), 15, { duration: 0.8 });
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 dark:bg-[#1E1815]/95 hover:bg-amber-50 dark:hover:bg-[#28201B] text-stone-700 dark:text-stone-200 hover:text-amber-800 dark:hover:text-amber-400 text-xs font-bold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
             >
@@ -1147,7 +1257,7 @@ export default function SpotsMap({
           ) : isDiscovering ? (
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 dark:bg-[#1E1815]/95 text-stone-700 dark:text-stone-200 text-xs font-semibold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700">
               <Loader2 className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500 animate-spin shrink-0" />
-              <span>Finding nearby cafés & restaurants…</span>
+              <span>Finding nearby venues…</span>
             </div>
           ) : hasPannedAway ? (
             <button
@@ -1161,7 +1271,7 @@ export default function SpotsMap({
           ) : (
             <button
               type="button"
-              onClick={handleTriggerAreaSearch}
+              onClick={() => setNearbyDrawerOpen((prev) => !prev)}
               className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/90 dark:bg-[#1E1815]/90 hover:bg-stone-50 dark:hover:bg-[#28201B] text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white text-xs font-medium rounded-full shadow-xs border border-stone-200/80 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
             >
               <Compass className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500 shrink-0" />
@@ -1230,8 +1340,110 @@ export default function SpotsMap({
         </div>
       )}
 
+      {/* Floating Interactive Nearby Spots Drawer (Bottom-Right) */}
+      {nearbyDrawerOpen && (
+        <div
+          ref={nearbyDrawerRef}
+          className="absolute right-3.5 bottom-20 z-30 w-80 max-w-[calc(100vw-2rem)] max-h-96 bg-white/98 dark:bg-[#1E1815]/98 backdrop-blur-md rounded-2xl shadow-2xl border border-stone-200/90 dark:border-stone-800 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        >
+          {/* Drawer Header */}
+          <div className="p-3 bg-stone-50/80 dark:bg-stone-900/60 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Compass className="w-4 h-4 text-amber-700 dark:text-amber-500 shrink-0" />
+              <span className="text-xs font-bold text-stone-900 dark:text-stone-100">
+                Nearby Spots in View
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-bold">
+                {sortedPois.length}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNearbyDrawerOpen(false)}
+              className="p-1 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 rounded-lg cursor-pointer"
+              aria-label="Close nearby places drawer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Scrollable Venue List */}
+          <div className="overflow-y-auto divide-y divide-stone-100 dark:divide-stone-800/60 p-1 flex-1">
+            {sortedPois.length === 0 ? (
+              <div className="p-6 text-center text-xs text-stone-400">
+                No food & drink venues found in this area. Zoom in or explore another street!
+              </div>
+            ) : (
+              sortedPois.map((venue) => {
+                const center = mapRef.current?.getCenter() ?? rawPosition.current;
+                const dist = center ? haversine(center, venue.location) : 0;
+                const catName = getCategoryDisplayName(venue.category);
+                return (
+                  <button
+                    key={venue.key}
+                    type="button"
+                    onClick={() => {
+                      setNearbyDrawerOpen(false);
+                      const storeLatLng = L.latLng(
+                        venue.location.lat,
+                        venue.location.lng,
+                      );
+                      mapRef.current?.flyTo(storeLatLng, 17, { duration: 1.0 });
+                      renderDroppedPin(storeLatLng);
+                      openVenuePopover(venue, storeLatLng);
+                    }}
+                    className="w-full p-2.5 text-left hover:bg-amber-50/60 dark:hover:bg-stone-800/60 rounded-xl flex items-start gap-2.5 transition-colors cursor-pointer group"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-amber-100 dark:group-hover:bg-amber-950 group-hover:text-amber-800 dark:group-hover:text-amber-300 transition-colors">
+                      <span
+                        dangerouslySetInnerHTML={{
+                          __html: categorySvgs[venue.category] ?? categorySvgs.other,
+                        }}
+                        className="w-3.5 h-3.5 flex items-center justify-center"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="text-xs font-bold text-stone-900 dark:text-stone-100 truncate">
+                          {venue.name}
+                        </p>
+                        <span className="text-[10px] font-mono text-amber-700 dark:text-amber-400 shrink-0 font-medium">
+                          {formatDistance(dist)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] px-1 py-0.2 rounded bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
+                          {catName}
+                        </span>
+                        <p className="text-[11px] text-stone-400 truncate">
+                          {venue.location.locality || venue.location.formattedAddress}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Bottom-Right Floating Map Controls */}
-      <div className="absolute right-3.5 bottom-6 z-20 flex flex-col items-center gap-2">
+      <div className="absolute right-3.5 bottom-6 z-20 flex flex-col items-end gap-2">
+        {/* Interactive "X nearby spots found" Button */}
+        {filteredDiscoveredPois.length > 0 && (
+          <button
+            ref={nearbyButtonRef}
+            type="button"
+            onClick={() => setNearbyDrawerOpen((prev) => !prev)}
+            aria-label={`${filteredDiscoveredPois.length} nearby spots found. Tap to view list.`}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white/95 dark:bg-[#1E1815]/95 hover:bg-amber-50 dark:hover:bg-[#28201B] text-stone-700 dark:text-stone-200 hover:text-amber-800 dark:hover:text-amber-400 text-xs font-bold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
+          >
+            <Compass className="w-4 h-4 text-amber-700 dark:text-amber-500 shrink-0" />
+            <span>{filteredDiscoveredPois.length} nearby spots found</span>
+          </button>
+        )}
+
         {/* Locate Me */}
         <button
           type="button"

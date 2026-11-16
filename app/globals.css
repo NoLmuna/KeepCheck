@@ -834,7 +834,12 @@ body {
   display: block;
 }
 
-.keepcheck-poi-inner:hover .poi-label {
+.poi-label-hover {
+  display: none;
+}
+
+.keepcheck-poi-inner:hover .poi-label,
+.keepcheck-poi-inner:hover .poi-label-hover {
   display: block !important;
   z-index: 100;
 }
