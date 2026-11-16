@@ -45,6 +45,7 @@ export interface Spot extends SyncRecord {
   notes?: string;
   coverPhotoUrl?: string;
   localCoverPhotoId?: string;
+  photoUrls?: string[];
   location: SpotLocation;
   /** Legacy journals without a location are preserved without placing a false map pin. */
   locationMissing?: boolean;

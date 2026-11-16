@@ -1,7 +1,9 @@
 "use client";
+
 import { memo, useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/app/db";
+
 const JournalPhoto = memo(function JournalPhoto({
   id,
   url,
@@ -18,6 +20,12 @@ const JournalPhoto = memo(function JournalPhoto({
     [id],
   );
   const [source, setSource] = useState<{ blob: Blob; url: string }>();
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [id, url, photo?.remoteUrl]);
+
   useEffect(() => {
     const blob = photo?.blob ?? photo?.thumbnail;
     if (!blob) return;
@@ -26,13 +34,23 @@ const JournalPhoto = memo(function JournalPhoto({
     setSource({ blob, url: objectUrl });
     return () => URL.revokeObjectURL(objectUrl);
   }, [photo?.blob, photo?.thumbnail]);
-  const src =
-    (source?.blob === (photo?.blob ?? photo?.thumbnail)
+
+  // Priority order:
+  // 1. Local IndexedDB Blob (URL.createObjectURL) if the photo exists locally on this device/origin
+  // 2. Synced remote URL (photo.remoteUrl / url) starting with https:// whenever a local Blob is absent
+  const localBlobUrl =
+    source?.blob === (photo?.blob ?? photo?.thumbnail)
       ? source?.url
+      : undefined;
+
+  const remoteUrl =
+    (photo?.remoteUrl && photo.remoteUrl.startsWith("https://")
+      ? photo.remoteUrl
       : undefined) ??
-    photo?.remoteUrl ??
-    url;
-  // Local Blob URLs provide offline previews without a remote image proxy.
+    (url && url.startsWith("https://") ? url : (photo?.remoteUrl || url));
+
+  const src = (!imgError && (localBlobUrl || remoteUrl)) || undefined;
+
   return src ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -41,9 +59,13 @@ const JournalPhoto = memo(function JournalPhoto({
       src={src}
       alt={alt}
       className={className}
+      onError={() => setImgError(true)}
     />
   ) : (
-    <span className="text-xs">Photo unavailable on this device</span>
+    <div className="flex h-full w-full items-center justify-center p-1 text-center bg-stone-100 dark:bg-stone-800 text-[10px] leading-tight text-stone-400 dark:text-stone-500">
+      <span>Photo unavailable on this device</span>
+    </div>
   );
 });
+
 export default JournalPhoto;

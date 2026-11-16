@@ -134,6 +134,8 @@ export function validateBackup(input: unknown): Backup {
       !optionalText(l, ["locality", "osmId"]) ||
       !optionalText(s, ["localCoverPhotoId"]) ||
       (s.coverPhotoUrl !== undefined && !imageUrl(s.coverPhotoUrl)) ||
+      (s.photoUrls !== undefined &&
+        (!strings(s.photoUrls) || !s.photoUrls.every(imageUrl))) ||
       (s.locationMissing !== undefined &&
         typeof s.locationMissing !== "boolean") ||
       (s.overallRating !== undefined &&

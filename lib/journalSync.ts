@@ -326,17 +326,26 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
             current.updatedAt + 1,
             venue.updatedAt + 1,
           );
+          const updatedVisitPhotoUrls = [
+            ...new Set([...(current.photoUrls ?? []), url]),
+          ];
+          const updatedVenuePhotoUrls = [
+            ...new Set([...(venue.photoUrls ?? []), url]),
+          ];
+          const shouldUpdateCover =
+            venue.localCoverPhotoId === photo.id || !venue.coverPhotoUrl;
+
           await db.visitLogs.update(current.id, {
-            photoUrls: [...new Set([...current.photoUrls, url])],
+            photoUrls: updatedVisitPhotoUrls,
             updatedAt: now,
             syncStatus: "pending",
           });
-          if (venue.localCoverPhotoId === photo.id || !venue.coverPhotoUrl)
-            await db.venues.update(venue.id, {
-              coverPhotoUrl: url,
-              updatedAt: now,
-              syncStatus: "pending",
-            });
+          await db.venues.update(venue.id, {
+            photoUrls: updatedVenuePhotoUrls,
+            ...(shouldUpdateCover ? { coverPhotoUrl: url } : {}),
+            updatedAt: now,
+            syncStatus: "pending",
+          });
           await db.photoQueue.update(photo.id, {
             status: "uploaded",
             thumbnail,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   ArrowLeft,
@@ -46,7 +46,7 @@ import {
   type SpotDraft,
   type VisitDraft,
 } from "@/lib/journal";
-import { compressVisitPhoto, shareCard } from "@/lib/journalMedia";
+import { compressVisitPhoto, shareCard, resolveSpotGalleryPhotos, type GalleryPhotoItem } from "@/lib/journalMedia";
 import JournalPhoto from "./JournalPhoto";
 import { useToast } from "@/lib/toast";
 
@@ -326,11 +326,9 @@ export default function VenueSheet(p: Props) {
   const { lat, lng } = p.venue.location;
   const isWishlist = spot?.status === "wishlist";
 
-  const allPhotoIds = Array.from(
-    new Set([
-      ...(spot?.localCoverPhotoId ? [spot.localCoverPhotoId] : []),
-      ...visits.flatMap((v) => v.localPhotoIds ?? []),
-    ]),
+  const galleryPhotos: GalleryPhotoItem[] = useMemo(
+    () => resolveSpotGalleryPhotos(spot, visits),
+    [spot, visits],
   );
 
   return (
@@ -548,7 +546,7 @@ export default function VenueSheet(p: Props) {
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300 flex items-center gap-1.5">
                   <ImageIcon className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>Photos ({allPhotoIds.length})</span>
+                  <span>Photos ({galleryPhotos.length})</span>
                 </h4>
 
                 <button
@@ -562,14 +560,14 @@ export default function VenueSheet(p: Props) {
                 </button>
               </div>
 
-              {allPhotoIds.length > 0 ? (
+              {galleryPhotos.length > 0 ? (
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                  {allPhotoIds.map((id) => (
+                  {galleryPhotos.map((photo) => (
                     <div
-                      key={id}
+                      key={photo.key}
                       className="w-28 h-24 rounded-xl overflow-hidden border border-stone-200 dark:border-stone-700 shrink-0 bg-stone-100 dark:bg-stone-800 shadow-2xs"
                     >
-                      <JournalPhoto id={id} alt={spot.name} />
+                      <JournalPhoto id={photo.id} url={photo.url} alt={spot.name} />
                     </div>
                   ))}
                 </div>
@@ -830,13 +828,18 @@ export default function VenueSheet(p: Props) {
 
                       {v.notes && <p className="text-stone-600 dark:text-stone-300 italic">“{v.notes}”</p>}
 
-                      {v.localPhotoIds.length > 0 && (
+                      {((v.localPhotoIds && v.localPhotoIds.length > 0) || (v.photoUrls && v.photoUrls.length > 0)) && (
                         <div className="flex items-center gap-1.5 pt-1 overflow-x-auto">
-                          {v.localPhotoIds.map((id, i) => (
-                            <div key={id} className="w-16 h-14 rounded-lg overflow-hidden border border-stone-200 dark:border-stone-700 shrink-0 bg-stone-100 dark:bg-stone-800">
-                              <JournalPhoto id={id} url={v.photoUrls[i]} alt={`Visit photo ${i + 1}`} />
-                            </div>
-                          ))}
+                          {Array.from({ length: Math.max(v.localPhotoIds?.length ?? 0, v.photoUrls?.length ?? 0) }).map((_, i) => {
+                            const id = v.localPhotoIds?.[i];
+                            const url = v.photoUrls?.[i];
+                            const photoKey = id || url || `visit-photo-${v.id}-${i}`;
+                            return (
+                              <div key={photoKey} className="w-16 h-14 rounded-lg overflow-hidden border border-stone-200 dark:border-stone-700 shrink-0 bg-stone-100 dark:bg-stone-800">
+                                <JournalPhoto id={id} url={url} alt={`Visit photo ${i + 1}`} />
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

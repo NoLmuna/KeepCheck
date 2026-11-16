@@ -49,7 +49,8 @@ export default memo(function SpotCard({
 }) {
   const isWishlist = spot.status === "wishlist";
   const mustOrderItem = spot.menuItems?.find((m) => m.verdict === "must-order");
-  const hasPhoto = Boolean(spot.localCoverPhotoId || spot.coverPhotoUrl);
+  const coverUrl = spot.coverPhotoUrl || spot.photoUrls?.[0];
+  const hasPhoto = Boolean(spot.localCoverPhotoId || coverUrl);
 
   return (
     <button
@@ -69,7 +70,7 @@ export default memo(function SpotCard({
             <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-stone-200 dark:border-stone-700 bg-stone-100 dark:bg-stone-800">
               <JournalPhoto
                 id={spot.localCoverPhotoId}
-                url={spot.coverPhotoUrl}
+                url={coverUrl}
                 alt={spot.name}
               />
             </div>

@@ -90,3 +90,78 @@ export async function shareCard(title: string, lines: string[]) {
   }
   downloadBlob(blob, "keepcheck-card.png");
 }
+
+export interface GalleryPhotoItem {
+  key: string;
+  id?: string;
+  url?: string;
+}
+
+/**
+ * Resolves all available photos for a venue/spot in priority order:
+ * 1. Spot cover photo (localCoverPhotoId and/or coverPhotoUrl)
+ * 2. Photos from visits (paired by index: localPhotoId and remote photoUrl)
+ * 3. Any additional spot-level photoUrls
+ * Deduplicates by local ID and remote URL.
+ */
+export function resolveSpotGalleryPhotos(
+  spot?: {
+    localCoverPhotoId?: string;
+    coverPhotoUrl?: string;
+    photoUrls?: string[];
+  } | null,
+  visits: Array<{
+    id?: string;
+    localPhotoIds?: string[];
+    photoUrls?: string[];
+  }> = [],
+): GalleryPhotoItem[] {
+  const items: GalleryPhotoItem[] = [];
+  const seenIds = new Set<string>();
+  const seenUrls = new Set<string>();
+
+  // 1. Spot cover photo
+  const coverUrl = spot?.coverPhotoUrl || spot?.photoUrls?.[0];
+  if (spot?.localCoverPhotoId || coverUrl) {
+    if (spot?.localCoverPhotoId) seenIds.add(spot.localCoverPhotoId);
+    if (coverUrl) seenUrls.add(coverUrl);
+    items.push({
+      key: spot?.localCoverPhotoId || coverUrl!,
+      id: spot?.localCoverPhotoId,
+      url: coverUrl,
+    });
+  }
+
+  // 2. Photos from visits (pair localPhotoIds and photoUrls by index)
+  for (const v of visits) {
+    const count = Math.max(v.localPhotoIds?.length ?? 0, v.photoUrls?.length ?? 0);
+    for (let i = 0; i < count; i++) {
+      const id = v.localPhotoIds?.[i];
+      const url = v.photoUrls?.[i];
+      if (id && seenIds.has(id)) continue;
+      if (url && seenUrls.has(url)) continue;
+      if (id || url) {
+        if (id) seenIds.add(id);
+        if (url) seenUrls.add(url);
+        items.push({
+          key: id || url || `visit-${v.id ?? "v"}-${i}`,
+          id,
+          url,
+        });
+      }
+    }
+  }
+
+  // 3. Additional spot-level photoUrls
+  for (const url of spot?.photoUrls ?? []) {
+    if (url && !seenUrls.has(url)) {
+      seenUrls.add(url);
+      items.push({
+        key: url,
+        url,
+      });
+    }
+  }
+
+  return items;
+}

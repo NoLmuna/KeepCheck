@@ -354,6 +354,10 @@ test("photo queue uploads idempotently, retains offline preview, and retries fai
     (await db.venues.get("s")).coverPhotoUrl,
     "https://example.com/photo.webp",
   );
+  assert.equal(
+    (await db.venues.get("s")).photoUrls[0],
+    "https://example.com/photo.webp",
+  );
   assert.equal(remote.size, 3);
   await sync.syncJournal("u", new AbortController().signal);
   assert.equal(uploads, 1);
@@ -388,4 +392,54 @@ test("photo queue uploads idempotently, retains offline preview, and retries fai
   globalThis.fetch = originalFetch;
   db.close();
   await Dexie.delete("KeepCheckDB");
+});
+
+test("cross-device synced photos resolve remote Cloudinary URLs in gallery and cards when local blobs are absent", async () => {
+  const media = load("lib/journalMedia.ts");
+  // Spot created on another device and synced down via Firestore
+  const syncedSpot = {
+    id: "spot-remote",
+    name: "Remote Cafe",
+    category: "coffee",
+    status: "visited",
+    coverPhotoUrl: "https://res.cloudinary.com/demo/image/upload/cover.webp",
+    localCoverPhotoId: "cover-id-from-device-a",
+    photoUrls: [
+      "https://res.cloudinary.com/demo/image/upload/cover.webp",
+      "https://res.cloudinary.com/demo/image/upload/latte.webp",
+      "https://res.cloudinary.com/demo/image/upload/croissant.webp",
+    ],
+  };
+
+  const syncedVisits = [
+    {
+      id: "visit-1",
+      spotId: "spot-remote",
+      visitedAt: 1000,
+      rating: 5,
+      itemsOrdered: ["Latte"],
+      // Local ID exists only on device A; local blob absent on this device
+      localPhotoIds: ["latte-id-from-device-a"],
+      photoUrls: ["https://res.cloudinary.com/demo/image/upload/latte.webp"],
+    },
+    {
+      id: "visit-2",
+      spotId: "spot-remote",
+      visitedAt: 2000,
+      rating: 4,
+      itemsOrdered: ["Croissant"],
+      localPhotoIds: [],
+      photoUrls: ["https://res.cloudinary.com/demo/image/upload/croissant.webp"],
+    },
+  ];
+
+  const gallery = media.resolveSpotGalleryPhotos(syncedSpot, syncedVisits);
+  assert.equal(gallery.length, 3);
+  // Cover photo with paired remote url
+  assert.equal(gallery[0].url, "https://res.cloudinary.com/demo/image/upload/cover.webp");
+  // Visit 1 photo with local ID and paired remote url
+  assert.equal(gallery[1].url, "https://res.cloudinary.com/demo/image/upload/latte.webp");
+  assert.equal(gallery[1].id, "latte-id-from-device-a");
+  // Visit 2 photo without local ID but with remote url
+  assert.equal(gallery[2].url, "https://res.cloudinary.com/demo/image/upload/croissant.webp");
 });
