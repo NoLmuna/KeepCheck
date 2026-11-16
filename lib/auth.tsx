@@ -69,6 +69,7 @@ interface AuthContextValue {
 const QUICK_LOGIN_KEY = "keepcheck-quick-login";
 const SESSION_CACHE_KEY = "keepcheck-session";
 const GUEST_MODE_KEY = "keepcheck-guest-mode";
+const SIGNED_OUT_KEY = "keepcheck-signed-out";
 const MAX_QUICK_LOGIN = 5;
 
 /* ------------------------------------------------------------------ */
@@ -140,30 +141,34 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null);
   const [firebaseLoading, setFirebaseLoading] = useState(true);
-  const [authResolved, setAuthResolved] = useState(false);
   const [authAction, setAuthAction] = useState<AuthActionState>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [quickLoginAccounts, setQuickLoginAccounts] = useState<QuickLoginAccount[]>([]);
   const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
 
-  // Guard to prevent repeating welcome toast
+  // Guard to prevent repeating welcome toast and token bridge loops
   const prevUserRef = useRef<User | null>(null);
   const tokenBridgeInFlight = useRef(false);
+  const isSignedOutRef = useRef(false);
 
   // Load cached session + guest mode + quick-login history from localStorage on mount.
   useEffect(() => {
     try {
+      if (localStorage.getItem(SIGNED_OUT_KEY) === "true") {
+        isSignedOutRef.current = true;
+      }
+    } catch {}
+
+    try {
       const storedGuest = localStorage.getItem(GUEST_MODE_KEY);
       if (storedGuest === "true") {
         setIsGuest(true);
-        setAuthResolved(true);
       }
     } catch {}
 
     const cached = loadCachedSession();
-    if (cached) {
+    if (cached && !isSignedOutRef.current) {
       setCachedSession(cached);
-      setAuthResolved(true);
     }
 
     try {
@@ -171,6 +176,16 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       if (stored) setQuickLoginAccounts(JSON.parse(stored));
     } catch {}
   }, []);
+
+  // When NextAuth acknowledges complete unauthentication, lift the sign-out lock
+  useEffect(() => {
+    if (nextAuthStatus === "unauthenticated") {
+      isSignedOutRef.current = false;
+      try {
+        localStorage.removeItem(SIGNED_OUT_KEY);
+      } catch {}
+    }
+  }, [nextAuthStatus]);
 
   const saveToQuickLogin = useCallback((u: User) => {
     setQuickLoginAccounts((prev: QuickLoginAccount[]) => {
@@ -205,7 +220,9 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
           setIsGuest(false);
           try {
             localStorage.removeItem(GUEST_MODE_KEY);
+            localStorage.removeItem(SIGNED_OUT_KEY);
           } catch {}
+          isSignedOutRef.current = false;
         }
       })
       .catch((err: unknown) => {
@@ -219,6 +236,15 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       if (!isMounted) return;
 
       if (firebaseUser) {
+        // If user explicitly signed out, do not resurrect session
+        if (
+          isSignedOutRef.current ||
+          (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true")
+        ) {
+          setFirebaseLoading(false);
+          return;
+        }
+
         if (!prevUserRef.current) {
           const name = firebaseUser.displayName ?? firebaseUser.email ?? "friend";
           setTimeout(() => {
@@ -231,7 +257,9 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         setIsGuest(false);
         try {
           localStorage.removeItem(GUEST_MODE_KEY);
+          localStorage.removeItem(SIGNED_OUT_KEY);
         } catch {}
+        isSignedOutRef.current = false;
 
         saveToQuickLogin(firebaseUser);
         saveCachedSession(firebaseUser);
@@ -259,7 +287,6 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         setAuthAction(null);
       }
       setFirebaseLoading(false);
-      setAuthResolved(true);
     });
 
     return () => {
@@ -269,10 +296,14 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   }, [saveToQuickLogin, showToast]);
 
   // ---- NextAuth (Vercel OAuth) → Firebase Token Bridge ----
-  // When NextAuth session resolves (e.g. on Vercel deployment using AUTH_GOOGLE_ID/AUTH_SECRET),
-  // exchange it via /api/firebase-token for a Firebase custom token.
+  // When NextAuth session resolves, exchange it via /api/firebase-token for a Firebase custom token.
   useEffect(() => {
+    const isExplicitlySignedOut =
+      isSignedOutRef.current ||
+      (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true");
+
     if (
+      isExplicitlySignedOut ||
       nextAuthStatus !== "authenticated" ||
       !nextAuthSession?.user?.email ||
       user !== null ||
@@ -297,7 +328,9 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         setIsGuest(false);
         try {
           localStorage.removeItem(GUEST_MODE_KEY);
+          localStorage.removeItem(SIGNED_OUT_KEY);
         } catch {}
+        isSignedOutRef.current = false;
       } catch (err) {
         console.warn("[KeepCheck] Firebase token bridge error (falling back to client auth):", err);
         tokenBridgeInFlight.current = false;
@@ -311,10 +344,12 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   // 2. Falls back cleanly to Firebase client signInWithPopup / signInWithRedirect.
   const signInWithGoogle = useCallback(async (emailHint?: string): Promise<User | void> => {
     tokenBridgeInFlight.current = false;
+    isSignedOutRef.current = false;
     setIsGuest(false);
     setAuthAction("signing-in");
     try {
       localStorage.removeItem(GUEST_MODE_KEY);
+      localStorage.removeItem(SIGNED_OUT_KEY);
     } catch {}
 
     // First attempt NextAuth OAuth (used on Vercel)
@@ -361,6 +396,13 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   // Instant, clean sign out of both NextAuth and Firebase
   const signOut = useCallback(async () => {
+    // Set immediate synchronous sign-out locks so token bridge CANNOT auto-relogin
+    isSignedOutRef.current = true;
+    try {
+      localStorage.setItem(SIGNED_OUT_KEY, "true");
+      localStorage.removeItem(GUEST_MODE_KEY);
+    } catch {}
+
     // Synchronously clear user session state so the UI instantly transitions to LandingPage
     clearCachedSession();
     setCachedSession(null);
@@ -369,11 +411,6 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     prevUserRef.current = null;
     tokenBridgeInFlight.current = false;
     setAuthAction(null);
-    // authResolved remains true to prevent any flash or loading screen!
-
-    try {
-      localStorage.removeItem(GUEST_MODE_KEY);
-    } catch {}
 
     try {
       await nextAuthSignOut({ redirect: false });
@@ -392,11 +429,12 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   }, [showToast]);
 
   const continueAsGuest = useCallback(() => {
-    setIsGuest(true);
-    setAuthResolved(true);
+    isSignedOutRef.current = false;
     try {
+      localStorage.removeItem(SIGNED_OUT_KEY);
       localStorage.setItem(GUEST_MODE_KEY, "true");
     } catch {}
+    setIsGuest(true);
   }, []);
 
   const exitGuestMode = useCallback(() => {
@@ -405,6 +443,21 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       localStorage.removeItem(GUEST_MODE_KEY);
     } catch {}
   }, []);
+
+  // Compute true ground-truth resolution:
+  // Never resolve prematurely while NextAuth session is loading or while token bridge is bridging!
+  const isExplicitlySignedOut =
+    isSignedOutRef.current ||
+    (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true");
+
+  const isBridgeActive =
+    nextAuthStatus === "authenticated" && !isExplicitlySignedOut && user === null;
+
+  const authResolved =
+    !!user ||
+    !!cachedSession ||
+    isGuest ||
+    (!firebaseLoading && nextAuthStatus !== "loading" && !isBridgeActive && !tokenBridgeInFlight.current);
 
   const loading = !authResolved;
 

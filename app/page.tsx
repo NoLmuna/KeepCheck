@@ -6,7 +6,7 @@ import JournalApp from "@/components/JournalApp";
 import LandingPage from "@/components/LandingPage";
 
 export default function Home() {
-  const { user, cachedSession, isGuest, authResolved } = useAuth();
+  const { user, cachedSession, isGuest, authResolved, authAction } = useAuth();
 
   // Unified single boot gate before initial session resolution completes
   if (!authResolved && !cachedSession && !isGuest) {
@@ -25,7 +25,9 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2 text-stone-600 dark:text-stone-300 text-xs font-semibold">
             <div className="w-3.5 h-3.5 border-2 border-stone-300 dark:border-stone-600 border-t-amber-700 dark:border-t-amber-500 rounded-full animate-spin" />
-            <span className="font-serif">Loading KeepCheck…</span>
+            <span className="font-serif">
+              {authAction === "signing-in" ? "Signing in to KeepCheck…" : "Loading KeepCheck…"}
+            </span>
           </div>
         </div>
       </div>

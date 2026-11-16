@@ -249,8 +249,8 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
       "Photo uploads pending: Firebase Storage is not configured.",
     );
   const storage = getStorage(getFirebaseApp());
-  storage.maxUploadRetryTime = 30000;
-  storage.maxOperationRetryTime = 15000;
+  storage.maxUploadRetryTime = 6000;
+  storage.maxOperationRetryTime = 4000;
   for (const photo of queued) {
     if (signal.aborted || !navigator.onLine) return;
     const parent = await db.visitLogs.get(photo.visitLogId);
@@ -274,9 +274,16 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
       const task = uploadBytesResumable(reference, photo.blob, {
         contentType: photo.blob.type,
       });
-      const cancel = () => task.cancel();
+      if (typeof (task as unknown as { catch?: unknown }).catch === "function") {
+        (task as unknown as Promise<unknown>).catch(() => {});
+      }
+      const cancel = () => {
+        try {
+          task.cancel();
+        } catch {}
+      };
       signal.addEventListener("abort", cancel, { once: true });
-      const timeout = setTimeout(cancel, 45000);
+      const timeout = setTimeout(cancel, 10000);
       try {
         await task;
       } finally {
@@ -388,7 +395,9 @@ export function syncJournal(uid: string, signal: AbortSignal): Promise<void> {
     const nextUid = pendingResyncUid;
     pendingResyncUid = null;
     if (nextUid && typeof navigator !== "undefined" && navigator.onLine) {
-      void syncJournal(nextUid, new AbortController().signal);
+      void syncJournal(nextUid, new AbortController().signal).catch((err) => {
+        console.warn("[Sync] Background resync error:", err);
+      });
     }
   });
   return running;
