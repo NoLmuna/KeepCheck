@@ -8,14 +8,8 @@ import {
   runTransaction,
   type Unsubscribe,
 } from "firebase/firestore";
-import {
-  getStorage,
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-} from "firebase/storage";
 import { db, type FoodSpotLog, type SpotImage } from "@/app/db";
-import { getFirebaseApp, getFirebaseFirestore } from "./firebase";
+import { getFirebaseFirestore } from "./firebase";
 import type { Spot, VisitLog, SpotCollection, SyncRecord } from "./models";
 import { migrateLegacyRecords } from "./legacyMigration";
 import { compressVisitPhoto } from "./journalMedia";
@@ -244,13 +238,15 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
     .filter((p) => p.status === "pending")
     .toArray();
   if (!queued.length) return;
-  if (!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)
-    throw new Error(
-      "Photo uploads pending: Firebase Storage is not configured.",
-    );
-  const storage = getStorage(getFirebaseApp());
-  storage.maxUploadRetryTime = 6000;
-  storage.maxOperationRetryTime = 4000;
+
+  const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+  const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+
+  // If Cloudinary is not configured, gracefully retain photos locally without blocking sync
+  if (!cloudName || !uploadPreset) {
+    return;
+  }
+
   for (const photo of queued) {
     if (signal.aborted || !navigator.onLine) return;
     const parent = await db.visitLogs.get(photo.visitLogId);
@@ -270,28 +266,49 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
       continue;
     }
     try {
-      const reference = ref(storage, `users/${uid}/journal/${photo.id}`);
-      const task = uploadBytesResumable(reference, photo.blob, {
-        contentType: photo.blob.type,
-      });
-      if (typeof (task as unknown as { catch?: unknown }).catch === "function") {
-        (task as unknown as Promise<unknown>).catch(() => {});
-      }
-      const cancel = () => {
-        try {
-          task.cancel();
-        } catch {}
-      };
-      signal.addEventListener("abort", cancel, { once: true });
-      const timeout = setTimeout(cancel, 10000);
+      const formData = new FormData();
+      formData.append("file", photo.blob);
+      formData.append("upload_preset", uploadPreset);
+      formData.append("folder", `keepcheck/${uid}`);
+
+      const uploadController = new AbortController();
+      const onParentAbort = () => uploadController.abort();
+      signal.addEventListener("abort", onParentAbort, { once: true });
+      const timeout = setTimeout(() => uploadController.abort(), 10000);
+
+      let res: Response;
       try {
-        await task;
+        res = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: "POST",
+            body: formData,
+            signal: uploadController.signal,
+          },
+        );
       } finally {
         clearTimeout(timeout);
-        signal.removeEventListener("abort", cancel);
+        signal.removeEventListener("abort", onParentAbort);
       }
+
       if (signal.aborted) return;
-      const url = await getDownloadURL(reference);
+
+      if (!res.ok) {
+        const errorData = (await res.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        const errorMsg =
+          errorData?.error?.message ||
+          `Cloudinary upload failed (${res.status})`;
+        throw new Error(errorMsg);
+      }
+
+      const data = (await res.json()) as { secure_url?: string; url?: string };
+      const url = data.secure_url || data.url;
+      if (!url) {
+        throw new Error("Cloudinary response missing secure_url");
+      }
+
       const thumbnail =
         photo.thumbnail ?? (await compressVisitPhoto(photo.blob)).thumbnail;
       // Retain a small offline preview; release the full compressed blob only after parent URLs are durable locally.
@@ -314,7 +331,7 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
             updatedAt: now,
             syncStatus: "pending",
           });
-          if (venue.localCoverPhotoId === photo.id)
+          if (venue.localCoverPhotoId === photo.id || !venue.coverPhotoUrl)
             await db.venues.update(venue.id, {
               coverPhotoUrl: url,
               updatedAt: now,

@@ -2,18 +2,17 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth";
-import LandingPage from "@/components/LandingPage";
 
 export default function LoginPage() {
-  const { user, cachedSession, isGuest, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && (user || cachedSession || isGuest)) {
-      router.replace("/");
-    }
-  }, [user, cachedSession, isGuest, loading, router]);
+    router.replace("/");
+  }, [router]);
 
-  return <LandingPage />;
+  return (
+    <div className="flex h-[100dvh] w-full items-center justify-center bg-[#FAF7F2] dark:bg-[#15110F]">
+      <div className="w-4 h-4 border-2 border-stone-300 dark:border-stone-600 border-t-amber-700 dark:border-t-amber-500 rounded-full animate-spin" />
+    </div>
+  );
 }

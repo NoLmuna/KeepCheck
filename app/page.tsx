@@ -8,8 +8,9 @@ import LandingPage from "@/components/LandingPage";
 export default function Home() {
   const { user, cachedSession, isGuest, authResolved, authAction } = useAuth();
 
-  // Unified single boot gate before initial session resolution completes
-  if (!authResolved && !cachedSession && !isGuest) {
+  // Unified single boot gate before initial session resolution completes,
+  // or while active sign-in is underway
+  if ((!authResolved || authAction === "signing-in") && !user && !cachedSession && !isGuest) {
     return (
       <div className="flex h-[100dvh] w-full items-center justify-center bg-[#FAF7F2] dark:bg-[#15110F]">
         <div className="flex flex-col items-center gap-3.5">

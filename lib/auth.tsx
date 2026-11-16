@@ -149,6 +149,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   // Guard to prevent repeating welcome toast and token bridge loops
   const prevUserRef = useRef<User | null>(null);
   const tokenBridgeInFlight = useRef(false);
+  const tokenBridgeAbortController = useRef<AbortController | null>(null);
   const isSignedOutRef = useRef(false);
 
   // Load cached session + guest mode + quick-login history from localStorage on mount.
@@ -176,16 +177,6 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       if (stored) setQuickLoginAccounts(JSON.parse(stored));
     } catch {}
   }, []);
-
-  // When NextAuth acknowledges complete unauthentication, lift the sign-out lock
-  useEffect(() => {
-    if (nextAuthStatus === "unauthenticated") {
-      isSignedOutRef.current = false;
-      try {
-        localStorage.removeItem(SIGNED_OUT_KEY);
-      } catch {}
-    }
-  }, [nextAuthStatus]);
 
   const saveToQuickLogin = useCallback((u: User) => {
     setQuickLoginAccounts((prev: QuickLoginAccount[]) => {
@@ -241,6 +232,8 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
           isSignedOutRef.current ||
           (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true")
         ) {
+          void firebaseSignOut(auth);
+          setUser(null);
           setFirebaseLoading(false);
           return;
         }
@@ -312,26 +305,59 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       return;
     }
 
+    const controller = new AbortController();
+    tokenBridgeAbortController.current = controller;
     tokenBridgeInFlight.current = true;
     setAuthAction("signing-in");
 
     (async () => {
       try {
-        const res = await fetch("/api/firebase-token", { method: "POST" });
+        const res = await fetch("/api/firebase-token", {
+          method: "POST",
+          signal: controller.signal,
+        });
         if (!res.ok) {
           const body = await res.text();
           throw new Error(`Token bridge failed (${res.status}): ${body}`);
         }
 
         const { customToken } = await res.json();
+
+        // Abort if sign-out occurred while fetching token
+        if (
+          isSignedOutRef.current ||
+          (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true")
+        ) {
+          tokenBridgeInFlight.current = false;
+          setAuthAction(null);
+          return;
+        }
+
         await signInWithCustomToken(getFirebaseAuth(), customToken);
+
+        // Abort if sign-out occurred while signing in with custom token
+        if (
+          isSignedOutRef.current ||
+          (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true")
+        ) {
+          await firebaseSignOut(getFirebaseAuth());
+          tokenBridgeInFlight.current = false;
+          setAuthAction(null);
+          return;
+        }
+
         setIsGuest(false);
         try {
           localStorage.removeItem(GUEST_MODE_KEY);
           localStorage.removeItem(SIGNED_OUT_KEY);
         } catch {}
         isSignedOutRef.current = false;
-      } catch (err) {
+        tokenBridgeInFlight.current = false;
+      } catch (err: unknown) {
+        if ((err as { name?: string })?.name === "AbortError") {
+          tokenBridgeInFlight.current = false;
+          return;
+        }
         console.warn("[KeepCheck] Firebase token bridge error (falling back to client auth):", err);
         tokenBridgeInFlight.current = false;
         setAuthAction(null);
@@ -343,6 +369,10 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   // 1. Tries NextAuth signIn (standard for Vercel with AUTH_GOOGLE_ID & AUTH_SECRET).
   // 2. Falls back cleanly to Firebase client signInWithPopup / signInWithRedirect.
   const signInWithGoogle = useCallback(async (emailHint?: string): Promise<User | void> => {
+    if (tokenBridgeAbortController.current) {
+      tokenBridgeAbortController.current.abort();
+      tokenBridgeAbortController.current = null;
+    }
     tokenBridgeInFlight.current = false;
     isSignedOutRef.current = false;
     setIsGuest(false);
@@ -354,7 +384,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
     // First attempt NextAuth OAuth (used on Vercel)
     try {
-      await nextAuthSignIn("google", undefined, emailHint ? { login_hint: emailHint } : undefined);
+      await nextAuthSignIn("google", { callbackUrl: "/", redirectTo: "/" }, emailHint ? { login_hint: emailHint } : undefined);
       return;
     } catch (nextAuthErr) {
       console.warn("[KeepCheck Auth] NextAuth sign-in attempt finished or failed, trying Firebase client auth:", nextAuthErr);
@@ -396,33 +426,37 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   // Instant, clean sign out of both NextAuth and Firebase
   const signOut = useCallback(async () => {
-    // Set immediate synchronous sign-out locks so token bridge CANNOT auto-relogin
+    // 1. Immediately abort any in-flight token bridge
+    if (tokenBridgeAbortController.current) {
+      tokenBridgeAbortController.current.abort();
+      tokenBridgeAbortController.current = null;
+    }
+    tokenBridgeInFlight.current = false;
+
+    // 2. Set permanent synchronous sign-out lock so background events cannot resurrect session
     isSignedOutRef.current = true;
     try {
       localStorage.setItem(SIGNED_OUT_KEY, "true");
       localStorage.removeItem(GUEST_MODE_KEY);
     } catch {}
 
-    // Synchronously clear user session state so the UI instantly transitions to LandingPage
+    // 3. Clear all session and cached user state synchronously
     clearCachedSession();
     setCachedSession(null);
     setUser(null);
     setIsGuest(false);
     prevUserRef.current = null;
-    tokenBridgeInFlight.current = false;
     setAuthAction(null);
 
-    try {
-      await nextAuthSignOut({ redirect: false });
-    } catch (error) {
-      console.error("[KeepCheck Auth] NextAuth signOut error:", error);
-    }
-
+    // 4. Concurrently sign out of both NextAuth and Firebase
     try {
       const auth = getFirebaseAuth();
-      await firebaseSignOut(auth);
+      await Promise.allSettled([
+        nextAuthSignOut({ redirect: false }),
+        firebaseSignOut(auth),
+      ]);
     } catch (error) {
-      console.error("[KeepCheck Auth] Firebase signOut error:", error);
+      console.error("[KeepCheck Auth] Error during sign-out:", error);
     }
 
     showToast("Signed out successfully", "info");

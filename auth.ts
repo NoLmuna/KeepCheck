@@ -30,11 +30,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // JWT session strategy — no database adapter needed.
   session: { strategy: "jwt" },
 
-  // Redirect auth errors to our login page instead of NextAuth's built-in
+  // Redirect auth errors to our root landing page instead of NextAuth's built-in
   // error page (which was returning a 500).
   pages: {
-    signIn: "/login",
-    error: "/login",
+    signIn: "/",
+    error: "/",
   },
 
   callbacks: {

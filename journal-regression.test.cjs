@@ -302,18 +302,25 @@ test("photo queue uploads idempotently, retains offline preview, and retries fai
         set: (ref, value) => remote.set(ref, value),
       }),
   };
-  const storage = {
-    getStorage: () => ({}),
-    ref: (storage, path) => path,
-    uploadBytesResumable: () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (typeof url === "string" && url.includes("api.cloudinary.com")) {
       uploads++;
-      const promise = fail
-        ? Promise.reject(new Error("upload unavailable"))
-        : Promise.resolve();
-      promise.cancel = () => {};
-      return promise;
-    },
-    getDownloadURL: async () => "https://example.com/photo.webp",
+      if (fail) {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { message: "upload unavailable" } }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ secure_url: "https://example.com/photo.webp" }),
+      };
+    }
+    if (originalFetch) return originalFetch(url, options);
+    throw new Error("Unhandled fetch in test: " + url);
   };
   const sync = load("lib/journalSync.ts", {
     "@/app/db": { db },
@@ -322,14 +329,15 @@ test("photo queue uploads idempotently, retains offline preview, and retries fai
       getFirebaseApp: () => ({}),
     },
     "firebase/firestore": firestore,
-    "firebase/storage": storage,
   });
   Object.defineProperty(globalThis, "navigator", {
     value: { onLine: false },
     configurable: true,
   });
-  const originalBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-  process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET = "test-bucket";
+  const originalCloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+  const originalPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+  process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME = "test-cloud";
+  process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET = "test-preset";
   await sync.syncJournal("u", new AbortController().signal);
   assert.equal(uploads, 0);
   globalThis.navigator.onLine = true;
@@ -371,9 +379,13 @@ test("photo queue uploads idempotently, retains offline preview, and retries fai
   );
   assert.equal((await db.photoQueue.get("p2")).blob.size, original.size);
   assert.equal(remote.get("users/u/collections/c").name, "Edited collection");
-  if (originalBucket === undefined)
-    delete process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-  else process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET = originalBucket;
+  if (originalCloud === undefined)
+    delete process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+  else process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME = originalCloud;
+  if (originalPreset === undefined)
+    delete process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+  else process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET = originalPreset;
+  globalThis.fetch = originalFetch;
   db.close();
   await Dexie.delete("KeepCheckDB");
 });
