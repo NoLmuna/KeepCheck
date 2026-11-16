@@ -28,7 +28,7 @@ import {
 import { getFirebaseAuth } from "./firebase";
 import { useToast } from "./toast";
 import { associateLocalRecordsWithUser } from "./journalSync";
-import AuthTransitionOverlay, { type AuthActionState } from "@/components/AuthTransitionOverlay";
+import type { AuthActionState } from "@/components/AuthTransitionOverlay";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -53,6 +53,7 @@ export interface CachedSession {
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
+  authResolved: boolean;
   authAction: AuthActionState;
   setAuthAction: (action: AuthActionState) => void;
   isGuest: boolean;
@@ -139,6 +140,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null);
   const [firebaseLoading, setFirebaseLoading] = useState(true);
+  const [authResolved, setAuthResolved] = useState(false);
   const [authAction, setAuthAction] = useState<AuthActionState>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [quickLoginAccounts, setQuickLoginAccounts] = useState<QuickLoginAccount[]>([]);
@@ -152,12 +154,16 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const storedGuest = localStorage.getItem(GUEST_MODE_KEY);
-      if (storedGuest === "true") setIsGuest(true);
+      if (storedGuest === "true") {
+        setIsGuest(true);
+        setAuthResolved(true);
+      }
     } catch {}
 
     const cached = loadCachedSession();
     if (cached) {
       setCachedSession(cached);
+      setAuthResolved(true);
     }
 
     try {
@@ -236,10 +242,8 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
           photoURL: firebaseUser.photoURL,
         });
 
-        // Smoothly dismiss auth loader now that session is active
-        setTimeout(() => {
-          setAuthAction(null);
-        }, 200);
+        // Dismiss auth action now that session is active
+        setAuthAction(null);
 
         // Automatically associate guest/local records with user.uid
         try {
@@ -252,9 +256,10 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         }
       } else {
         setUser(null);
-        setAuthAction((prev) => (prev === "signing-out" ? prev : null));
+        setAuthAction(null);
       }
       setFirebaseLoading(false);
+      setAuthResolved(true);
     });
 
     return () => {
@@ -354,9 +359,21 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Clean sign out of both NextAuth and Firebase
+  // Instant, clean sign out of both NextAuth and Firebase
   const signOut = useCallback(async () => {
-    setAuthAction("signing-out");
+    // Synchronously clear user session state so the UI instantly transitions to LandingPage
+    clearCachedSession();
+    setCachedSession(null);
+    setUser(null);
+    setIsGuest(false);
+    prevUserRef.current = null;
+    tokenBridgeInFlight.current = false;
+    setAuthAction(null);
+    // authResolved remains true to prevent any flash or loading screen!
+
+    try {
+      localStorage.removeItem(GUEST_MODE_KEY);
+    } catch {}
 
     try {
       await nextAuthSignOut({ redirect: false });
@@ -371,25 +388,12 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       console.error("[KeepCheck Auth] Firebase signOut error:", error);
     }
 
-    clearCachedSession();
-    setCachedSession(null);
-    setUser(null);
-    setIsGuest(false);
-    prevUserRef.current = null;
-    try {
-      localStorage.removeItem(GUEST_MODE_KEY);
-    } catch {}
-    tokenBridgeInFlight.current = false;
-
-    // Smooth buffer to synchronize transition with LandingPage and Toast
-    setTimeout(() => {
-      setAuthAction(null);
-      showToast("Signed out successfully", "info");
-    }, 300);
+    showToast("Signed out successfully", "info");
   }, [showToast]);
 
   const continueAsGuest = useCallback(() => {
     setIsGuest(true);
+    setAuthResolved(true);
     try {
       localStorage.setItem(GUEST_MODE_KEY, "true");
     } catch {}
@@ -402,15 +406,14 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
 
-  const loading =
-    (firebaseLoading && nextAuthStatus === "loading" && !cachedSession) ||
-    (nextAuthStatus === "authenticated" && !user && !cachedSession);
+  const loading = !authResolved;
 
   return (
     <AuthContext.Provider
       value={{
         user,
         loading,
+        authResolved,
         authAction,
         setAuthAction,
         isGuest,
@@ -423,7 +426,6 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-      <AuthTransitionOverlay action={authAction} />
     </AuthContext.Provider>
   );
 }

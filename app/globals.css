@@ -813,12 +813,14 @@ body {
 
 /* Leaflet marker styling */
 .keepcheck-marker {
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
+  display: block !important;
   cursor: pointer;
   transition: transform 0.15s ease;
   overflow: visible !important;
+}
+
+.keepcheck-editorial-pin {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease;
 }
 
 .keepcheck-poi-marker {
@@ -857,14 +859,17 @@ body {
 }
 
 .keepcheck-marker-active {
-  transform: scale(1.2) !important;
   z-index: 1000 !important;
 }
 
-.keepcheck-marker-active > div {
-  outline: 3px solid #b45309;
-  outline-offset: 2px;
-  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.4) !important;
+.keepcheck-marker-active .keepcheck-editorial-pin {
+  transform: translate(-50%, 0) scale(1.15) !important;
+  filter: drop-shadow(0 0 10px rgba(217, 93, 36, 0.7));
+}
+
+.keepcheck-marker-active .keepcheck-editorial-pin > div:first-child {
+  border-color: #D95D24 !important;
+  box-shadow: 0 0 0 2px #D95D24, 0 6px 16px rgba(0, 0, 0, 0.45) !important;
 }
 
 .user-location-dot {

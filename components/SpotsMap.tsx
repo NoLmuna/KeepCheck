@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Star,
   Bookmark,
+  ChevronUp,
 } from "lucide-react";
 import type { Spot, SpotCollection } from "@/lib/models";
 import {
@@ -182,8 +183,25 @@ export default function SpotsMap({
   const flyToVenue = useCallback((venue: Venue) => {
     const map = mapRef.current;
     if (!map || venue.record?.locationMissing) return;
-    map.flyTo([venue.location.lat, venue.location.lng], 17, {
-      duration: 1.2,
+
+    const targetZoom = Math.max(map.getZoom(), 16);
+    const latlng = L.latLng(venue.location.lat, venue.location.lng);
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+    // Viewport insets in pixels
+    // Top: floating search bar + discovery pill (~110px)
+    // Bottom: mobile bottom drawer/nav (~120px) vs desktop minimal controls (~30px)
+    const topInset = 110;
+    const bottomInset = isMobile ? 120 : 30;
+    const dx = 0;
+    const dy = (topInset - bottomInset) / 2;
+
+    const projected = map.project(latlng, targetZoom);
+    const adjustedPoint = L.point(projected.x - dx, projected.y - dy);
+    const adjustedLatLng = map.unproject(adjustedPoint, targetZoom);
+
+    map.flyTo(adjustedLatLng, targetZoom, {
+      duration: 0.6,
     });
   }, []);
 
@@ -196,22 +214,22 @@ export default function SpotsMap({
 
     if (externalSelection && !externalSelection.record?.locationMissing) {
       hasAutoCentered.current = true;
-      map.setView([externalSelection.location.lat, externalSelection.location.lng], 16);
+      flyToVenue(externalSelection);
       return;
     }
 
     if (saved.length > 0) {
       hasAutoCentered.current = true;
       if (saved.length === 1) {
-        map.setView([saved[0].location.lat, saved[0].location.lng], 16);
+        flyToVenue(saved[0]);
       } else {
         const bounds = L.latLngBounds(
           saved.map((v) => [v.location.lat, v.location.lng] as L.LatLngTuple),
         );
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
       }
     }
-  }, [saved, externalSelection]);
+  }, [saved, externalSelection, flyToVenue]);
 
   useEffect(() => {
     if (externalSelection) {
@@ -571,8 +589,8 @@ export default function SpotsMap({
 
       const latlng = L.latLng(venue.location.lat, venue.location.lng);
 
-      // Smoothly fly to location
-      map.flyTo(latlng, 17, { duration: 1.2 });
+      // Smoothly fly to location centered in unobstructed viewport
+      flyToVenue(venue);
 
       // If already saved, select in sidebar
       if (venue.record) {
@@ -586,7 +604,7 @@ export default function SpotsMap({
       // Open floating popover directly above the map pin
       openVenuePopover(venue, latlng);
     },
-    [choose, openVenuePopover, renderDroppedPin],
+    [choose, flyToVenue, openVenuePopover, renderDroppedPin],
   );
 
   // Initialize Leaflet map with CartoDB Voyager base tiles & maxNativeZoom
@@ -913,28 +931,67 @@ export default function SpotsMap({
       const showLabel = index < 20;
       const labelClass = showLabel ? "poi-label" : "poi-label-hover";
 
-      const html = isWish
-        ? `<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md border-2 border-white ring-2 ring-indigo-300 transition-transform hover:scale-110">${bookmarkSvg}</div>`
-        : isSaved
-          ? `<div class="w-9 h-9 rounded-full bg-amber-700 text-white flex items-center justify-center shadow-md border-2 border-white ring-2 ring-amber-400 text-xs font-bold transition-transform hover:scale-110 gap-0.5"><span>${iconSvg}</span>${
-              venue.record?.overallRating
-                ? `<span class="text-[10px] font-mono tabular-nums">${venue.record.overallRating.toFixed(1)}</span>`
-                : ""
-            }</div>`
-          : `<div class="keepcheck-poi-inner flex flex-col items-center pointer-events-none group">
-              <div class="pointer-events-auto w-6.5 h-6.5 rounded-full bg-white/95 dark:bg-[#201A16]/95 text-stone-600 dark:text-stone-300 flex items-center justify-center shadow-xs border border-stone-300/80 dark:border-stone-700/80 transition-all group-hover:scale-115 group-hover:border-amber-600 group-hover:text-amber-700 dark:group-hover:text-amber-400">
+      let html: string;
+
+      if (isWish) {
+        // Want to Try: Distinct bookmark-beak silhouette with warm amber/gold accent (#E5A93C)
+        html = `
+          <div class="keepcheck-editorial-pin pointer-events-auto select-none" style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 0);">
+            <div class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#1E1815] text-[#FAF7F2] border-[1.5px] border-[#E5A93C]/60 shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-all group-hover:scale-105">
+              <span class="w-5 h-5 rounded-full bg-[#E5A93C] text-[#1E1815] flex items-center justify-center shrink-0">
+                ${bookmarkSvg}
+              </span>
+              <span class="text-[10px] font-semibold text-amber-100 pr-0.5 tracking-tight">Want to Try</span>
+            </div>
+            <div class="flex justify-center -mt-[1px]">
+              <div class="w-0 h-0 border-x-[4px] border-x-transparent border-t-[5px] border-t-[#1E1815]"></div>
+            </div>
+          </div>
+        `;
+      } else if (isSaved) {
+        // Visited: Sleek pointer-tip pill tag anchored at bottom tip, #1E1815 with #D95D24 accent badge, 1.5px hairline border, gap-1.5, tabular-nums rating
+        const rating = venue.record?.overallRating;
+        html = `
+          <div class="keepcheck-editorial-pin pointer-events-auto select-none" style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 0);">
+            <div class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#1E1815] text-[#FAF7F2] border-[1.5px] border-[#FAF7F2]/35 shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-all group-hover:scale-105">
+              <span class="w-5 h-5 rounded-full bg-[#D95D24] text-white flex items-center justify-center shrink-0">
+                ${iconSvg}
+              </span>
+              ${
+                rating
+                  ? `<span class="text-[11px] font-mono tabular-nums font-bold text-amber-200 pr-0.5">${rating.toFixed(1)}</span>`
+                  : `<span class="text-[10px] font-medium text-stone-300 pr-0.5">Visited</span>`
+              }
+            </div>
+            <div class="flex justify-center -mt-[1px]">
+              <div class="w-0 h-0 border-x-[4px] border-x-transparent border-t-[5px] border-t-[#1E1815]"></div>
+            </div>
+          </div>
+        `;
+      } else {
+        // Discovered Nearby POI: Translucent frosted-espresso micro-pins with clean category icon and venue name pill
+        html = `
+          <div class="keepcheck-editorial-pin keepcheck-poi-inner pointer-events-none select-none flex flex-col items-center" style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 0);">
+            <div class="pointer-events-auto flex flex-col items-center group">
+              <div class="w-6.5 h-6.5 rounded-full bg-[#1E1815]/85 backdrop-blur-md text-stone-200 flex items-center justify-center shadow-xs border border-white/20 transition-all group-hover:scale-115 group-hover:border-amber-500 group-hover:text-amber-400">
                 ${iconSvg}
               </div>
-              <span class="${labelClass} pointer-events-none select-none mt-1 px-1.5 py-0.5 max-w-[105px] truncate text-[10px] font-medium leading-none text-stone-700 dark:text-stone-200 bg-white/95 dark:bg-[#1E1815]/95 backdrop-blur-xs rounded shadow-2xs border border-stone-200/80 dark:border-stone-800 text-center">
-                ${escapeHtml(venue.name)}
-              </span>
-            </div>`;
+              <div class="flex justify-center -mt-[0.5px]">
+                <div class="w-0 h-0 border-x-[3px] border-x-transparent border-t-[4px] border-t-[#1E1815]/85"></div>
+              </div>
+            </div>
+            <span class="${labelClass} pointer-events-none select-none mt-1 px-1.5 py-0.5 max-w-[110px] truncate text-[10px] font-medium leading-none text-stone-200 bg-[#1E1815]/90 backdrop-blur-xs rounded shadow-xs border border-white/15 text-center">
+              ${escapeHtml(venue.name)}
+            </span>
+          </div>
+        `;
+      }
 
       const markerClass = isSaved
-        ? "keepcheck-marker"
+        ? "keepcheck-marker keepcheck-saved-marker"
         : "keepcheck-marker keepcheck-poi-marker";
-      const iconSize: [number, number] = isSaved ? [36, 36] : [36, 48];
-      const iconAnchor: [number, number] = isSaved ? [18, 18] : [18, 13];
+      const iconSize: [number, number] = [0, 0];
+      const iconAnchor: [number, number] = [0, 0];
 
       if (!entry) {
         const marker = L.marker([venue.location.lat, venue.location.lng], {
@@ -1388,7 +1445,7 @@ export default function SpotsMap({
                         venue.location.lat,
                         venue.location.lng,
                       );
-                      mapRef.current?.flyTo(storeLatLng, 17, { duration: 1.0 });
+                      flyToVenue(venue);
                       renderDroppedPin(storeLatLng);
                       openVenuePopover(venue, storeLatLng);
                     }}
@@ -1430,17 +1487,25 @@ export default function SpotsMap({
 
       {/* Bottom-Right Floating Map Controls */}
       <div className="absolute right-3.5 bottom-6 z-20 flex flex-col items-end gap-2">
-        {/* Interactive "X nearby spots found" Button */}
+        {/* Interactive "X spots nearby" Glassmorphic Floating Pill */}
         {filteredDiscoveredPois.length > 0 && (
           <button
             ref={nearbyButtonRef}
             type="button"
             onClick={() => setNearbyDrawerOpen((prev) => !prev)}
-            aria-label={`${filteredDiscoveredPois.length} nearby spots found. Tap to view list.`}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white/95 dark:bg-[#1E1815]/95 hover:bg-amber-50 dark:hover:bg-[#28201B] text-stone-700 dark:text-stone-200 hover:text-amber-800 dark:hover:text-amber-400 text-xs font-bold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
+            aria-label={`${filteredDiscoveredPois.length} spots nearby. Tap to view list.`}
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-[#1E1815]/90 backdrop-blur-md hover:bg-[#28201B] text-[#FAF7F2] text-xs font-bold rounded-full shadow-lg border border-white/15 transition-all cursor-pointer active:scale-95 group"
           >
-            <Compass className="w-4 h-4 text-amber-700 dark:text-amber-500 shrink-0" />
-            <span>{filteredDiscoveredPois.length} nearby spots found</span>
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#D95D24] opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#D95D24]" />
+            </span>
+            <span className="font-sans tracking-wide">{filteredDiscoveredPois.length} spots nearby</span>
+            <ChevronUp
+              className={`w-3.5 h-3.5 text-stone-400 group-hover:text-amber-400 transition-transform duration-200 ${
+                nearbyDrawerOpen ? "rotate-180" : ""
+              }`}
+            />
           </button>
         )}
 
