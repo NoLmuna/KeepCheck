@@ -200,7 +200,7 @@ export async function discoverVenues(
   const cached = viewportCache.get(box);
   if (cached && (cached.expires > Date.now() || !navigator.onLine))
     return cached.venues;
-  const query = `[out:json][timeout:10];(nwr[amenity~"^(cafe|restaurant|bakery|fast_food)$"](${box});nwr[shop=bakery](${box}););out center tags;`;
+  const query = `[out:json][timeout:10];(nwr[amenity~"^(cafe|restaurant|fast_food|bar|pub|ice_cream)$"](${box});nwr[shop~"^(bakery|coffee|tea)$"](${box}););out center tags;`;
   const data = await request<OverpassResponse>(
     "https://overpass-api.de/api/interpreter",
     signal,
@@ -224,10 +224,14 @@ export async function discoverVenues(
     const address = [t["addr:housenumber"], t["addr:street"], locality]
       .filter(Boolean)
       .join(" ");
+    const category =
+      categoryFor(t.amenity) !== "other"
+        ? categoryFor(t.amenity)
+        : categoryFor(t.shop);
     venues.set(id, {
       key: id,
       name: t.name || "Unnamed venue",
-      category: categoryFor(t.shop === "bakery" ? "bakery" : t.amenity),
+      category,
       cuisine: t.cuisine,
       location: {
         lat,

@@ -80,10 +80,21 @@ export function formatDistance(metres: number): string {
     : `${(metres / 1000).toFixed(1)} km`;
 }
 export function categoryFor(value?: string): Venue["category"] {
-  if (value === "cafe" || value === "coffee_shop") return "coffee";
+  if (
+    value === "cafe" ||
+    value === "coffee_shop" ||
+    value === "coffee" ||
+    value === "tea"
+  )
+    return "coffee";
   if (value === "bakery") return "bakery";
   if (value === "bar" || value === "pub") return "bar";
-  if (value === "restaurant" || value === "fast_food") return "restaurant";
+  if (
+    value === "restaurant" ||
+    value === "fast_food" ||
+    value === "ice_cream"
+  )
+    return "restaurant";
   return "other";
 }
 import type { Spot } from "./models";

@@ -67,6 +67,9 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
   const handleVenueSelection = useCallback((venue: Venue | null, action?: "visit" | "wishlist") => {
     setSelected(venue);
     setInitialAction(action);
+    if (venue && action && typeof window !== "undefined" && window.innerWidth < 768) {
+      setMobileTab("journal");
+    }
   }, []);
 
   const [toolsOpen, setToolsOpen] = useState(false);

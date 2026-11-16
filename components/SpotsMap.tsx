@@ -15,6 +15,12 @@ import {
   Plus,
   Minus,
   Navigation,
+  Search,
+  X,
+  Loader2,
+  RefreshCw,
+  Star,
+  Bookmark,
 } from "lucide-react";
 import type { Spot, SpotCollection } from "@/lib/models";
 import {
@@ -22,6 +28,7 @@ import {
   formatDistance,
   haversine,
   journalVenue,
+  type Coordinates,
   type Venue,
 } from "@/lib/geo";
 import {
@@ -46,6 +53,30 @@ const categorySvgs: Record<string, string> = {
 };
 
 const bookmarkSvg = `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>`;
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function getCategoryDisplayName(cat: Venue["category"]): string {
+  switch (cat) {
+    case "coffee":
+      return "Coffee / Café";
+    case "bakery":
+      return "Bakery";
+    case "bar":
+      return "Bar / Pub";
+    case "restaurant":
+      return "Restaurant";
+    default:
+      return "Food & Drink";
+  }
+}
 
 interface Props {
   navigation?: ReactNode;
@@ -86,7 +117,6 @@ export default function SpotsMap({
   const { online, position, gps, rawPosition, subscribePosition } = context;
   const { showToast } = useToast();
 
-  const searchInput = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<Venue | null>(externalSelection);
   const [pois, setPois] = useState<Venue[]>([]);
   const poisRef = useRef<Venue[]>([]);
@@ -94,10 +124,21 @@ export default function SpotsMap({
     poisRef.current = pois;
   }, [pois]);
 
-  const [query, setQuery] = useState("");
-  const [, setResults] = useState<Venue[]>([]);
-  const [, setSearchStatus] = useState("");
-  const [discoveryStatus, setDiscoveryStatus] = useState("Zoom in to see nearby cafés");
+  // Floating search state
+  const [mapSearchQuery, setMapSearchQuery] = useState("");
+  const [mapSearchResults, setMapSearchResults] = useState<Venue[]>([]);
+  const [isSearchingPhoton, setIsSearchingPhoton] = useState(false);
+  const [mapSearchOpen, setMapSearchOpen] = useState(false);
+  const mapSearchContainerRef = useRef<HTMLDivElement>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+
+  // Discovery state
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [hasPannedAway, setHasPannedAway] = useState(false);
+  const [currentZoom, setCurrentZoom] = useState(16);
+  const [discoveryStatus, setDiscoveryStatus] = useState("Zoom in to see nearby spots");
+  const lastScannedCenterRef = useRef<Coordinates | null>(null);
+  const triggerDiscoveryRef = useRef<() => void>(() => {});
 
   const [routeMode, setRouteMode] = useState<"foot" | "driving">("foot");
   const [showRoute, setShowRoute] = useState(false);
@@ -186,12 +227,95 @@ export default function SpotsMap({
       setShowRoute(false);
       setRoute(null);
       setRouteStatus("");
-      setQuery("");
-      setResults([]);
+      setMapSearchQuery("");
+      setMapSearchResults([]);
+      setMapSearchOpen(false);
       flyToVenue(venue);
     },
     [flyToVenue],
   );
+
+  // Close search dropdown on click outside or Esc
+  useEffect(() => {
+    if (!mapSearchOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!mapSearchContainerRef.current?.contains(e.target as Node)) {
+        setMapSearchOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMapSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mapSearchOpen]);
+
+  // Photon Autocomplete Search with Proximity Bias to Map Center
+  useEffect(() => {
+    searchAbortRef.current?.abort();
+    if (mapSearchQuery.trim().length < 2) {
+      setMapSearchResults([]);
+      setIsSearchingPhoton(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setIsSearchingPhoton(true);
+    setMapSearchOpen(true);
+
+    // Local saved matches first
+    const qLower = mapSearchQuery.trim().toLowerCase();
+    const localMatched = saved.filter(
+      (v) =>
+        v.name.toLowerCase().includes(qLower) ||
+        v.location.formattedAddress?.toLowerCase().includes(qLower) ||
+        v.location.locality?.toLowerCase().includes(qLower),
+    );
+    setMapSearchResults(localMatched);
+
+    const timer = setTimeout(async () => {
+      try {
+        const center = mapRef.current?.getCenter() ?? rawPosition.current;
+        const centerCoords = center ? { lat: center.lat, lng: center.lng } : null;
+        const found = await searchVenues(
+          mapSearchQuery.trim(),
+          centerCoords,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        if (found) {
+          const savedOsmIds = new Set(
+            localMatched.map((s) => s.location.osmId).filter(Boolean),
+          );
+          const combined = [
+            ...localMatched,
+            ...found.filter(
+              (f) => !f.location.osmId || !savedOsmIds.has(f.location.osmId),
+            ),
+          ];
+          setMapSearchResults(combined);
+        }
+      } catch {
+        // Ignore abort/network errors
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSearchingPhoton(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [mapSearchQuery, saved, rawPosition]);
 
   // Function to open the compact floating popover card directly above a pin/POI
   const openVenuePopover = useCallback(
@@ -202,7 +326,21 @@ export default function SpotsMap({
       const activeVenue = { ...venue };
 
       const popupDiv = document.createElement("div");
-      popupDiv.className = "p-3 space-y-2.5 min-w-[210px] max-w-[260px] font-sans";
+      popupDiv.className = "p-3 space-y-2 min-w-[210px] max-w-[265px] font-sans";
+
+      // Category Pill / Tag
+      const categoryContainer = document.createElement("div");
+      categoryContainer.className = "flex items-center gap-1.5";
+
+      const catName = getCategoryDisplayName(activeVenue.category);
+      const catIconSvg = categorySvgs[activeVenue.category] ?? categorySvgs.other;
+
+      const catBadge = document.createElement("span");
+      catBadge.className =
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60";
+      catBadge.innerHTML = `<span class="w-3 h-3 flex items-center justify-center">${catIconSvg}</span><span>${catName}</span>`;
+      categoryContainer.appendChild(catBadge);
+      popupDiv.appendChild(categoryContainer);
 
       const titleEl = document.createElement("h4");
       titleEl.className = "font-serif font-bold text-sm text-stone-900 dark:text-white truncate";
@@ -217,12 +355,14 @@ export default function SpotsMap({
       popupDiv.appendChild(addrEl);
 
       const btnContainer = document.createElement("div");
-      btnContainer.className = "grid grid-cols-2 gap-1.5 pt-1.5 border-t border-stone-200/80 dark:border-stone-700/80";
+      btnContainer.className =
+        "grid grid-cols-2 gap-1.5 pt-1.5 border-t border-stone-200/80 dark:border-stone-700/80";
 
       // Log a Visit button
       const btnLog = document.createElement("button");
       btnLog.type = "button";
-      btnLog.className = "py-1.5 px-2.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs";
+      btnLog.className =
+        "py-1.5 px-2.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs";
       btnLog.innerHTML = `<span>Log Visit</span>`;
       btnLog.onclick = () => {
         map.closePopup();
@@ -237,7 +377,8 @@ export default function SpotsMap({
       // Want to Try button
       const btnWish = document.createElement("button");
       btnWish.type = "button";
-      btnWish.className = "py-1.5 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs";
+      btnWish.className =
+        "py-1.5 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs";
       btnWish.innerHTML = `<span>Want to Try</span>`;
       btnWish.onclick = () => {
         map.closePopup();
@@ -251,7 +392,7 @@ export default function SpotsMap({
       popupDiv.appendChild(btnContainer);
 
       const popup = L.popup({
-        offset: [0, -32],
+        offset: [0, -28],
         closeButton: true,
         autoClose: true,
         closeOnClick: false,
@@ -264,7 +405,7 @@ export default function SpotsMap({
         .setContent(popupDiv)
         .openOn(map);
 
-      // Smoothly pan into view if pin is near any viewport edge (accounting for navbar and sidebar)
+      // Smoothly pan into view if pin is near any viewport edge
       try {
         map.panInside(latlng, {
           paddingTopLeft: [40, 180],
@@ -273,7 +414,7 @@ export default function SpotsMap({
           duration: 0.4,
         });
       } catch {
-        // Fallback gracefully if map is undergoing a layout transition
+        // Fallback gracefully
       }
 
       currentPopupRef.current = popup;
@@ -289,15 +430,74 @@ export default function SpotsMap({
         updateVenue: (updated: Venue) => {
           Object.assign(activeVenue, updated);
           titleEl.textContent = updated.name;
-          addrEl.textContent = updated.location.locality || updated.location.formattedAddress;
+          addrEl.textContent =
+            updated.location.locality || updated.location.formattedAddress;
+          const newCatName = getCategoryDisplayName(updated.category);
+          const newCatIconSvg = categorySvgs[updated.category] ?? categorySvgs.other;
+          catBadge.innerHTML = `<span class="w-3 h-3 flex items-center justify-center">${newCatIconSvg}</span><span>${newCatName}</span>`;
           popup.update();
         },
       };
     },
-    []
+    [],
   );
 
-  // Initialize Leaflet map with CartoDB Voyager (Light) / Dark Matter (Dark) tile layer
+  // Handle Search Result Selection
+  const handleSelectSearchResult = useCallback(
+    (venue: Venue) => {
+      setMapSearchOpen(false);
+      setMapSearchQuery("");
+      const map = mapRef.current;
+      if (!map) return;
+
+      const latlng = L.latLng(venue.location.lat, venue.location.lng);
+
+      // Smoothly fly to location
+      map.flyTo(latlng, 17, { duration: 1.2 });
+
+      // If already saved, select in sidebar
+      if (venue.record) {
+        choose(venue);
+        return;
+      }
+
+      // Drop visible pin with drop/pulse animation
+      if (droppedPinMarkerRef.current) {
+        droppedPinMarkerRef.current.remove();
+        droppedPinMarkerRef.current = null;
+      }
+
+      const pinDiv = document.createElement("div");
+      pinDiv.className = "relative flex items-center justify-center animate-pin-drop";
+      pinDiv.innerHTML = `
+        <div class="absolute -bottom-1 w-9 h-9 rounded-full bg-amber-500/35 animate-pin-ring pointer-events-none"></div>
+        <div class="relative z-10 w-9 h-9 rounded-full bg-gradient-to-tr from-amber-700 to-amber-500 text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-amber-600/30">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+        </div>
+      `;
+
+      const pinMarker = L.marker(latlng, {
+        icon: L.divIcon({
+          html: pinDiv,
+          className: "keepcheck-marker",
+          iconSize: [36, 36],
+          iconAnchor: [18, 36],
+        }),
+        zIndexOffset: 1500,
+      }).addTo(map);
+
+      droppedPinMarkerRef.current = pinMarker;
+
+      // Open floating popover directly above the map pin
+      openVenuePopover(venue, latlng);
+    },
+    [choose, openVenuePopover],
+  );
+
+  // Initialize Leaflet map with CartoDB Voyager base tiles
   useEffect(() => {
     if (!container.current) return;
     const p = initial.current;
@@ -307,37 +507,42 @@ export default function SpotsMap({
     }).setView(p ? [p.lat, p.lng] : [14.5995, 120.9842], p ? 16 : 13);
     mapRef.current = map;
 
-    const isDark = document.documentElement.classList.contains("dark");
     const cartoKey = (process.env.NEXT_PUBLIC_CARTO_API_KEY || "").trim();
-    const hasCartoKey = Boolean(cartoKey);
+    const voyagerTileUrl = cartoKey
+      ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${cartoKey}`
+      : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 
-    const osmTileUrl = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-    const darkCartoUrl = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${cartoKey}`;
-    const lightCartoUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${cartoKey}`;
-
-    const darkTileUrl = hasCartoKey ? darkCartoUrl : osmTileUrl;
-    const lightTileUrl = hasCartoKey ? lightCartoUrl : osmTileUrl;
-
-    const tileLayer = L.tileLayer(isDark ? darkTileUrl : lightTileUrl, {
+    const tileLayer = L.tileLayer(voyagerTileUrl, {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: hasCartoKey ? "abcd" : "abc",
+      subdomains: "abcd",
       maxZoom: 19,
     }).addTo(map);
     tileLayerRef.current = tileLayer;
 
-    // MutationObserver to sync map tile theme with app dark/light toggle
-    const themeObserver = new MutationObserver(() => {
-      const darkNow = document.documentElement.classList.contains("dark");
-      const targetUrl = darkNow ? darkTileUrl : lightTileUrl;
-      if (tileLayerRef.current && (tileLayerRef.current as any)._url !== targetUrl) {
-        tileLayerRef.current.setUrl(targetUrl);
+    // Track zoom level & toggle detailed POI labels
+    const updateZoomClass = () => {
+      const z = map.getZoom();
+      setCurrentZoom(z);
+      container.current?.classList.toggle("map-zoom-detailed", z >= 16);
+    };
+    map.on("zoomend", updateZoomClass);
+    updateZoomClass();
+
+    // Track map panning to toggle "Search this area" prompt
+    const handleMove = () => {
+      if (lastScannedCenterRef.current && map.getZoom() >= 15) {
+        const center = map.getCenter();
+        const dist = haversine(
+          { lat: center.lat, lng: center.lng },
+          lastScannedCenterRef.current,
+        );
+        if (dist > 280) {
+          setHasPannedAway(true);
+        }
       }
-    });
-    themeObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
+    };
+    map.on("move", handleMove);
 
     // Handle Map Click: Render Visible Pin + Open Compact Popover (NO SIDEBAR HIJACKING)
     const handleMapClick = (e: L.LeafletMouseEvent) => {
@@ -357,7 +562,7 @@ export default function SpotsMap({
 
       // 2. Check if user clicked near an existing POI (within ~30 meters)
       const nearbyPoi = poisRef.current.find(
-        (poi) => haversine(clickCoords, poi.location) <= 30
+        (poi) => haversine(clickCoords, poi.location) <= 30,
       );
 
       const venueLocation = nearbyPoi
@@ -426,15 +631,16 @@ export default function SpotsMap({
 
     return () => {
       reverse.current?.abort();
-      themeObserver.disconnect();
       resizeObserver.disconnect();
+      map.off("zoomend", updateZoomClass);
+      map.off("move", handleMove);
       map.off("click", handleMapClick);
       map.remove();
       mapRef.current = null;
     };
   }, [openVenuePopover]);
 
-  // Discover live POIs (capped at 35, zoom >= 15)
+  // Discover live POIs (capped at 40, zoom >= 15)
   useEffect(() => {
     let isMounted = true;
     const map = mapRef.current;
@@ -442,7 +648,7 @@ export default function SpotsMap({
     let timer: ReturnType<typeof setTimeout>;
     let controller: AbortController | undefined;
 
-    const update = () => {
+    const performDiscovery = async () => {
       clearTimeout(timer);
       controller?.abort();
       if (!isMounted || !mapRef.current) return;
@@ -452,117 +658,122 @@ export default function SpotsMap({
         if (map.getZoom() < 15) {
           setPois([]);
           setDiscoveryStatus("Zoom in to see nearby spots");
+          setIsDiscovering(false);
           return;
         }
       } catch {
         return;
       }
 
-      timer = setTimeout(async () => {
-        if (!isMounted || !mapRef.current) return;
-        try {
-          if (!(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
-          controller = new AbortController();
-          const signal = controller.signal;
-          const b = map.getBounds();
-          setDiscoveryStatus(
-            online ? "Finding nearby venues…" : "Offline · cached venues only",
-          );
+      try {
+        if (!(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
+        controller = new AbortController();
+        const signal = controller.signal;
+        const b = map.getBounds();
+        const center = map.getCenter();
+        setIsDiscovering(true);
+        setDiscoveryStatus(
+          online ? "Finding nearby venues…" : "Offline · cached venues only",
+        );
 
-          let venues = await discoverVenues(
-            discoveryBounds(
-              {
-                south: b.getSouth(),
-                west: b.getWest(),
-                north: b.getNorth(),
-                east: b.getEast(),
-              },
-              map.getCenter(),
-            ),
-            signal,
-          );
+        let venues = await discoverVenues(
+          discoveryBounds(
+            {
+              south: b.getSouth(),
+              west: b.getWest(),
+              north: b.getNorth(),
+              east: b.getEast(),
+            },
+            center,
+          ),
+          signal,
+        );
 
-          // Fallback: if Overpass returned no venues, query Photon nearby
-          if ((!venues || venues.length === 0) && online && !signal.aborted) {
-            const center = map.getCenter();
-            const photonVenues = await searchVenues("cafe", center, signal);
-            if (photonVenues && photonVenues.length > 0) {
-              venues = photonVenues;
-            }
+        // Fallback: if Overpass returned no venues, query Photon nearby
+        if ((!venues || venues.length === 0) && online && !signal.aborted) {
+          const photonVenues = await searchVenues("cafe", center, signal);
+          if (photonVenues && photonVenues.length > 0) {
+            venues = photonVenues;
           }
-
-          if (!isMounted || signal.aborted) return;
-          if (venues) setPois(venues.slice(0, 35));
-          setDiscoveryStatus(
-            venues && venues.length > 0
-              ? `${Math.min(venues.length, 35)} nearby spots found${online ? "" : " · cached"}`
-              : "Nearby spots unavailable",
-          );
-        } catch {
-          // Gracefully suppress tear-down calculation errors when map unmounts
         }
+
+        if (!isMounted || signal.aborted) return;
+        if (venues) {
+          setPois(venues.slice(0, 40));
+          lastScannedCenterRef.current = { lat: center.lat, lng: center.lng };
+          setHasPannedAway(false);
+        }
+        setDiscoveryStatus(
+          venues && venues.length > 0
+            ? `${Math.min(venues.length, 40)} nearby spots found${online ? "" : " · cached"}`
+            : "Nearby spots unavailable",
+        );
+      } catch {
+        // Gracefully suppress tear-down calculation errors when map unmounts
+      } finally {
+        if (isMounted) {
+          setIsDiscovering(false);
+        }
+      }
+    };
+
+    triggerDiscoveryRef.current = performDiscovery;
+
+    const debouncedUpdate = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void performDiscovery();
       }, 600);
     };
 
-    map.on("moveend", update);
+    map.on("moveend", debouncedUpdate);
     if ((map as unknown as { _loaded?: boolean })._loaded) {
-      update();
+      debouncedUpdate();
     } else {
-      map.whenReady(update);
+      map.whenReady(debouncedUpdate);
     }
 
     return () => {
       isMounted = false;
       clearTimeout(timer);
       controller?.abort();
-      map.off("moveend", update);
+      map.off("moveend", debouncedUpdate);
     };
   }, [online]);
 
-  // Autocomplete Search
-  useEffect(() => {
-    const controller = new AbortController();
-    setResults([]);
-    if (query.trim().length < 2) {
-      setSearchStatus("");
-      return () => controller.abort();
-    }
+  const handleTriggerAreaSearch = () => {
+    triggerDiscoveryRef.current();
+  };
 
-    const local = saved.filter((v) =>
-      v.name.toLowerCase().includes(query.toLowerCase()),
-    );
-    setResults(local);
-    setSearchStatus(online ? "Searching…" : "Offline · searching saved spots");
-
-    const timer = setTimeout(async () => {
-      const found = await searchVenues(
-        query.trim(),
-        rawPosition.current,
-        controller.signal,
-      );
-      if (controller.signal.aborted) return;
-      const ids = new Set(local.map((v) => v.location.osmId));
-      setResults([
-        ...local,
-        ...(found ?? []).filter((v) => !ids.has(v.location.osmId)),
-      ]);
-      setSearchStatus(
-        found
-          ? found.length || local.length
-            ? ""
-            : "No venues found"
-          : "Live search unavailable · saved results shown",
-      );
-    }, 300);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [query, rawPosition, online, saved]);
+  // Deduplicate discovered POIs against user's saved spots within ~25 meters
+  const filteredDiscoveredPois = useMemo(() => {
+    return pois.filter((poi) => {
+      const isDuplicateOfSaved = allSpots.some((s) => {
+        if (
+          s.isDeleted ||
+          s.locationMissing ||
+          !s.location ||
+          !Number.isFinite(s.location.lat) ||
+          !Number.isFinite(s.location.lng) ||
+          (s.location.lat === 0 && s.location.lng === 0)
+        ) {
+          return false;
+        }
+        if (
+          poi.location.osmId &&
+          s.location.osmId &&
+          poi.location.osmId === s.location.osmId
+        ) {
+          return true;
+        }
+        return haversine(poi.location, s.location) <= 25;
+      });
+      return !isDuplicateOfSaved;
+    });
+  }, [pois, allSpots]);
 
   // Custom DivIcon Markers Rendering
-  const markers = useRef(new Map<string, { marker: L.Marker; venue: Venue }>());
+  const markers = useRef<Map<string, { marker: L.Marker; venue: Venue }>>(new Map());
 
   useEffect(() => {
     const map = mapRef.current;
@@ -576,7 +787,7 @@ export default function SpotsMap({
     const ids = new Set(
       allSpots.flatMap((s) => (s.location.osmId ? [s.location.osmId] : [])),
     );
-    const venues = [...nearestPois(pois, center, ids, 35), ...saved];
+    const venues = [...nearestPois(filteredDiscoveredPois, center, ids, 40), ...saved];
 
     if (
       selected &&
@@ -609,15 +820,28 @@ export default function SpotsMap({
                 ? `<span class="text-[10px] font-mono tabular-nums">${venue.record.overallRating.toFixed(1)}</span>`
                 : ""
             }</div>`
-          : `<div class="w-7 h-7 rounded-full bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 flex items-center justify-center shadow-xs border border-stone-300 dark:border-stone-600 transition-transform hover:scale-110">${iconSvg}</div>`;
+          : `<div class="keepcheck-poi-inner flex flex-col items-center pointer-events-none group">
+              <div class="pointer-events-auto w-6.5 h-6.5 rounded-full bg-white/95 dark:bg-[#201A16]/95 text-stone-600 dark:text-stone-300 flex items-center justify-center shadow-xs border border-stone-300/80 dark:border-stone-700/80 transition-all group-hover:scale-115 group-hover:border-amber-600 group-hover:text-amber-700 dark:group-hover:text-amber-400">
+                ${iconSvg}
+              </div>
+              <span class="poi-label pointer-events-none select-none mt-1 px-1.5 py-0.5 max-w-[105px] truncate text-[10px] font-medium leading-none text-stone-700 dark:text-stone-200 bg-white/95 dark:bg-[#1E1815]/95 backdrop-blur-xs rounded shadow-2xs border border-stone-200/80 dark:border-stone-800 text-center">
+                ${escapeHtml(venue.name)}
+              </span>
+            </div>`;
+
+      const markerClass = isSaved
+        ? "keepcheck-marker"
+        : "keepcheck-marker keepcheck-poi-marker";
+      const iconSize: [number, number] = isSaved ? [36, 36] : [36, 48];
+      const iconAnchor: [number, number] = isSaved ? [18, 18] : [18, 13];
 
       if (!entry) {
         const marker = L.marker([venue.location.lat, venue.location.lng], {
           icon: L.divIcon({
             html,
-            className: "keepcheck-marker",
-            iconSize: [36, 36],
-            iconAnchor: [18, 18],
+            className: markerClass,
+            iconSize,
+            iconAnchor,
           }),
           bubblingMouseEvents: false,
           title: venue.name,
@@ -634,8 +858,13 @@ export default function SpotsMap({
           if (cur.venue.record) {
             choose(cur.venue);
           } else {
-            // For discovered POI, open the compact floating popover right on the map!
-            openVenuePopover(cur.venue, e.latlng);
+            // For discovered POI, smoothly pan and open floating popover right on the map!
+            const targetLatLng = L.latLng(
+              cur.venue.location.lat,
+              cur.venue.location.lng,
+            );
+            map.panTo(targetLatLng, { animate: true, duration: 0.4 });
+            openVenuePopover(cur.venue, targetLatLng);
           }
         });
       } else {
@@ -643,6 +872,15 @@ export default function SpotsMap({
         const old = entry.marker.getLatLng();
         if (old.lat !== venue.location.lat || old.lng !== venue.location.lng)
           entry.marker.setLatLng([venue.location.lat, venue.location.lng]);
+
+        entry.marker.setIcon(
+          L.divIcon({
+            html,
+            className: markerClass,
+            iconSize,
+            iconAnchor,
+          }),
+        );
       }
 
       const el = entry.marker.getElement();
@@ -657,7 +895,14 @@ export default function SpotsMap({
         venue.key === selected?.key ? 1000 : isSaved ? 500 : 0,
       );
     }
-  }, [pois, saved, selected, choose, allSpots, openVenuePopover]);
+  }, [
+    filteredDiscoveredPois,
+    saved,
+    selected,
+    choose,
+    allSpots,
+    openVenuePopover,
+  ]);
 
   useEffect(() => {
     const entries = markers.current;
@@ -792,19 +1037,6 @@ export default function SpotsMap({
     }
   }
 
-  function handleDiscoveryClick() {
-    const map = mapRef.current;
-    if (!map || !(map as unknown as { _mapPane?: HTMLElement })._mapPane) return;
-    try {
-      if (map.getZoom() < 15) {
-        map.flyTo(map.getCenter(), 16, { duration: 0.8 });
-      } else {
-        setDiscoveryStatus(online ? "Finding nearby spots…" : "Offline · cached spots only");
-        map.fire("moveend");
-      }
-    } catch {}
-  }
-
   return (
     <div className="relative h-full w-full min-h-0 overflow-hidden bg-[#FAF7F2] dark:bg-[#15110F]">
       {/* Full-bleed Leaflet Map Canvas */}
@@ -814,6 +1046,131 @@ export default function SpotsMap({
         aria-label="Interactive venue discovery map"
       />
 
+      {/* Floating Map Search Bar & "Search This Area" Discovery at Top-Center */}
+      <div
+        ref={mapSearchContainerRef}
+        className="absolute top-3.5 left-1/2 -translate-x-1/2 z-30 w-[calc(100%-1.75rem)] max-w-md pointer-events-none flex flex-col items-center gap-1.5"
+      >
+        {/* Search Bar Input */}
+        <div className="pointer-events-auto relative w-full shadow-md rounded-2xl bg-white/95 dark:bg-[#1E1815]/95 backdrop-blur-md border border-stone-200/90 dark:border-stone-800 transition-all focus-within:ring-2 focus-within:ring-amber-600/30 focus-within:border-amber-600">
+          <div className="relative flex items-center h-10 px-3">
+            <Search className="w-4 h-4 text-stone-400 dark:text-stone-400 shrink-0 pointer-events-none mr-2.5" />
+            <input
+              type="text"
+              aria-label="Search cafés, restaurants, or streets to pin"
+              placeholder="Search cafés, restaurants, or streets to pin…"
+              value={mapSearchQuery}
+              onChange={(e) => setMapSearchQuery(e.target.value)}
+              onFocus={() => {
+                if (mapSearchResults.length > 0) setMapSearchOpen(true);
+              }}
+              className="w-full bg-transparent text-xs sm:text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-400 outline-none"
+            />
+            {isSearchingPhoton && (
+              <Loader2 className="w-4 h-4 text-amber-700 dark:text-amber-500 animate-spin shrink-0 ml-1.5" />
+            )}
+            {mapSearchQuery.length > 0 && !isSearchingPhoton && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMapSearchQuery("");
+                  setMapSearchResults([]);
+                  setMapSearchOpen(false);
+                }}
+                className="p-1 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 rounded-full cursor-pointer ml-1"
+                aria-label="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Search Autocomplete Dropdown */}
+          {mapSearchOpen && mapSearchResults.length > 0 && (
+            <div className="absolute left-0 right-0 top-full mt-1.5 max-h-64 overflow-y-auto bg-white/98 dark:bg-[#1C1612]/98 backdrop-blur-md border border-stone-200/90 dark:border-stone-800 rounded-2xl shadow-xl divide-y divide-stone-100 dark:divide-stone-800/60 z-50">
+              <div className="px-3 py-1.5 bg-stone-50/80 dark:bg-stone-900/60 text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+                Nearby & Saved Places (Tap to Pin)
+              </div>
+              {mapSearchResults.slice(0, 6).map((place) => (
+                <button
+                  key={place.key}
+                  type="button"
+                  onClick={() => handleSelectSearchResult(place)}
+                  className="w-full p-2.5 text-left hover:bg-amber-50/60 dark:hover:bg-stone-800/60 flex items-start gap-2.5 transition-colors cursor-pointer group"
+                >
+                  <div className="w-6 h-6 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-amber-100 dark:group-hover:bg-amber-950 group-hover:text-amber-800 dark:group-hover:text-amber-300 transition-colors">
+                    {place.record ? (
+                      place.record.status === "wishlist" ? (
+                        <Bookmark className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <Star className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-600" />
+                      )
+                    ) : (
+                      <Compass className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-bold text-stone-900 dark:text-stone-100 truncate">
+                        {place.name}
+                      </p>
+                      {place.record && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 shrink-0">
+                          Saved
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate">
+                      {place.location.locality || place.location.formattedAddress}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Area Discovery Pill Button */}
+        <div className="pointer-events-auto flex items-center justify-center">
+          {currentZoom < 15 ? (
+            <button
+              type="button"
+              onClick={() => {
+                const map = mapRef.current;
+                if (map) map.flyTo(map.getCenter(), 16, { duration: 0.8 });
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 dark:bg-[#1E1815]/95 hover:bg-amber-50 dark:hover:bg-[#28201B] text-stone-700 dark:text-stone-200 hover:text-amber-800 dark:hover:text-amber-400 text-xs font-bold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
+            >
+              <Compass className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500 shrink-0" />
+              <span>Zoom in to see nearby spots</span>
+            </button>
+          ) : isDiscovering ? (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 dark:bg-[#1E1815]/95 text-stone-700 dark:text-stone-200 text-xs font-semibold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700">
+              <Loader2 className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500 animate-spin shrink-0" />
+              <span>Finding nearby cafés & restaurants…</span>
+            </div>
+          ) : hasPannedAway ? (
+            <button
+              type="button"
+              onClick={handleTriggerAreaSearch}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-full shadow-md transition-all cursor-pointer active:scale-95 animate-pulse"
+            >
+              <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+              <span>Search this area</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleTriggerAreaSearch}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/90 dark:bg-[#1E1815]/90 hover:bg-stone-50 dark:hover:bg-[#28201B] text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white text-xs font-medium rounded-full shadow-xs border border-stone-200/80 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
+            >
+              <Compass className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500 shrink-0" />
+              <span>{discoveryStatus}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* When NOT in split-pane mode (e.g. mobile standalone view), render mobile floating panels */}
       {!splitPaneMode && (
         <div className="map-panel pointer-events-none absolute inset-3 z-20 flex flex-col justify-between">
@@ -821,10 +1178,9 @@ export default function SpotsMap({
             {navigation}
             <div className="flex items-center gap-2">
               <input
-                ref={searchInput}
                 type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                value={mapSearchQuery}
+                onChange={(e) => setMapSearchQuery(e.target.value)}
                 placeholder="Search venues…"
                 className="flex-1 h-9 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
               />
@@ -876,17 +1232,6 @@ export default function SpotsMap({
 
       {/* Bottom-Right Floating Map Controls */}
       <div className="absolute right-3.5 bottom-6 z-20 flex flex-col items-center gap-2">
-        {/* Interactive Discovery Button */}
-        <button
-          type="button"
-          onClick={handleDiscoveryClick}
-          aria-label={discoveryStatus}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-white/95 dark:bg-[#1E1815]/95 hover:bg-amber-50 dark:hover:bg-[#28201B] text-stone-700 dark:text-stone-200 hover:text-amber-800 dark:hover:text-amber-400 text-xs font-bold rounded-full shadow-md border border-stone-200/90 dark:border-stone-700 transition-all cursor-pointer active:scale-95"
-        >
-          <Compass className="w-3.5 h-3.5 text-amber-700 dark:text-amber-500 animate-spin-slow shrink-0" />
-          <span>{discoveryStatus}</span>
-        </button>
-
         {/* Locate Me */}
         <button
           type="button"

@@ -764,6 +764,11 @@ body {
   transition: opacity 0.2s ease-in-out;
 }
 
+/* Tuned warm-espresso filter strictly on map tiles for Dark Mode */
+.dark .leaflet-tile-pane {
+  filter: invert(93%) hue-rotate(180deg) brightness(94%) contrast(90%) saturate(85%);
+}
+
 /* ================================================================== */
 /*  LEAFLET MAP & MARKERS                                              */
 /* ================================================================== */
@@ -813,6 +818,37 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: transform 0.15s ease;
+  overflow: visible !important;
+}
+
+.keepcheck-poi-marker {
+  overflow: visible !important;
+}
+
+/* POI text label below circular badge */
+.poi-label {
+  display: none;
+}
+
+.map-zoom-detailed .poi-label {
+  display: block;
+}
+
+.keepcheck-poi-inner:hover .poi-label {
+  display: block !important;
+  z-index: 100;
+}
+
+/* KeepCheck compact floating popover */
+.keepcheck-popover .leaflet-popup-content-wrapper {
+  border-radius: 1rem !important;
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.25), 0 4px 10px -2px rgba(0, 0, 0, 0.15) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.keepcheck-popover .leaflet-popup-tip-container {
+  margin-top: -1px;
 }
 
 .keepcheck-marker-active {
