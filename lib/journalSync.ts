@@ -96,7 +96,7 @@ export async function mergeJournalRecords(
         continue;
       const old = await table(kind).get(record.id);
       if (old?.userId && old.userId !== uid) continue;
-      if (!old || old.updatedAt < record.updatedAt)
+      if (!old || old.updatedAt <= record.updatedAt)
         await table(kind).put({ ...record, syncStatus: "synced" });
     }
   });
@@ -227,13 +227,15 @@ async function push(kind: Kind, record: RecordData, uid: string) {
     tx.set(reference, { ...clean(record), userId: uid, syncStatus: "synced" });
     return null;
   });
-  if (winner) await mergeJournalRecords(kind, [winner], uid);
-  else
+  if (winner) {
+    await mergeJournalRecords(kind, [winner], uid);
+  } else {
     await db.transaction("rw", table(kind), async () => {
       const current = await table(kind).get(record.id);
-      if (current?.updatedAt === record.updatedAt)
-        await table(kind).put({ ...current, syncStatus: "synced" });
+      if (current && current.updatedAt <= record.updatedAt)
+        await table(kind).put({ ...current, syncStatus: "synced", userId: uid });
     });
+  }
 }
 async function uploadPhotos(uid: string, signal: AbortSignal) {
   const queued = await db.photoQueue
@@ -253,8 +255,20 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
     if (signal.aborted || !navigator.onLine) return;
     const parent = await db.visitLogs.get(photo.visitLogId);
     const spot = await db.venues.get(photo.spotId);
-    if (!parent || !spot || parent.isDeleted || spot.isDeleted) continue;
-    if (!photo.blob) continue;
+    if (!parent || !spot || parent.isDeleted || spot.isDeleted) {
+      await db.photoQueue.update(photo.id, {
+        status: "failed",
+        error: "Parent visit or venue deleted",
+      });
+      continue;
+    }
+    if (!photo.blob) {
+      await db.photoQueue.update(photo.id, {
+        status: "failed",
+        error: "Missing image data",
+      });
+      continue;
+    }
     try {
       const reference = ref(storage, `users/${uid}/journal/${photo.id}`);
       const task = uploadBytesResumable(reference, photo.blob, {
@@ -317,8 +331,12 @@ async function uploadPhotos(uid: string, signal: AbortSignal) {
   }
 }
 let running: Promise<void> | null = null;
+let pendingResyncUid: string | null = null;
 export function syncJournal(uid: string, signal: AbortSignal): Promise<void> {
-  if (running) return running;
+  if (running) {
+    pendingResyncUid = uid;
+    return running;
+  }
   running = (async () => {
     if (signal.aborted || !navigator.onLine) return;
     // Claim any unowned local records for the current user
@@ -334,18 +352,44 @@ export function syncJournal(uid: string, signal: AbortSignal): Promise<void> {
     for (const kind of kinds) {
       if (signal.aborted || !navigator.onLine) return;
       const pending = await table(kind)
-        .where("userId")
-        .equals(uid)
-        .filter((r) => r.syncStatus !== "synced")
+        .filter(
+          (r) =>
+            (!r.userId || r.userId === uid) &&
+            r.syncStatus !== "synced" &&
+            r.syncStatus !== "error",
+        )
         .toArray();
       for (const record of pending) {
         if (signal.aborted) return;
-        await push(kind, record, uid);
+        try {
+          await push(kind, record, uid);
+        } catch (recordError) {
+          console.warn(
+            `[Sync] Failed to push ${kind} record ${record.id}:`,
+            recordError,
+          );
+          const errMsg =
+            recordError instanceof Error
+              ? recordError.message
+              : String(recordError);
+          if (
+            errMsg.includes("permission-denied") ||
+            errMsg.includes("invalid") ||
+            errMsg.includes("not-found")
+          ) {
+            await table(kind).update(record.id, { syncStatus: "error" });
+          }
+        }
       }
     }
     if (photoError) throw photoError;
-  })().finally(() => {
+  })().finally(async () => {
     running = null;
+    const nextUid = pendingResyncUid;
+    pendingResyncUid = null;
+    if (nextUid && typeof navigator !== "undefined" && navigator.onLine) {
+      void syncJournal(nextUid, new AbortController().signal);
+    }
   });
   return running;
 }

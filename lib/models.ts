@@ -70,7 +70,7 @@ export interface QueuedPhoto {
   userId?: string;
   blob?: Blob;
   thumbnail?: Blob;
-  status: "pending" | "uploaded";
+  status: "pending" | "uploaded" | "failed";
   remoteUrl?: string;
   error?: string;
   createdAt: number;

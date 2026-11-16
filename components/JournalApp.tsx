@@ -147,7 +147,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
         ...(rawSpots ?? []),
         ...(rawVisits ?? []),
         ...(rawCollections ?? []),
-      ].filter((r) => r.syncStatus !== "synced"),
+      ].filter((r) => r.syncStatus === "pending"),
     [rawSpots, rawVisits, rawCollections],
   );
 

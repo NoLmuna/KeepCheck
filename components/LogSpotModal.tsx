@@ -227,27 +227,41 @@ export default function LogSpotModal({
       let resolvedOsmId = osmId;
 
       if ((resolvedCoords.lat === 0 && resolvedCoords.lng === 0) || !resolvedOsmId) {
-        try {
-          const autoFound = await searchVenues(name.trim(), position ?? null);
-          if (autoFound && autoFound.length > 0) {
-            const best = autoFound[0];
-            resolvedCoords = best.location;
-            resolvedAddress = best.location.formattedAddress || resolvedAddress;
-            resolvedLocality = best.location.locality ?? resolvedLocality;
-            resolvedOsmId = best.location.osmId;
-          } else if (position && resolvedCoords.lat === 0 && resolvedCoords.lng === 0) {
-            resolvedCoords = position;
-            if (!resolvedAddress) {
-              resolvedAddress = `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+        const isOnline = typeof navigator !== "undefined" && navigator.onLine;
+        if (isOnline) {
+          const autoController = new AbortController();
+          const autoTimeout = setTimeout(() => autoController.abort(), 2500);
+          try {
+            const autoFound = await searchVenues(
+              name.trim(),
+              position ?? null,
+              autoController.signal,
+            );
+            if (autoFound && autoFound.length > 0) {
+              const best = autoFound[0];
+              resolvedCoords = best.location;
+              resolvedAddress = best.location.formattedAddress || resolvedAddress;
+              resolvedLocality = best.location.locality ?? resolvedLocality;
+              resolvedOsmId = best.location.osmId;
+            } else if (position && resolvedCoords.lat === 0 && resolvedCoords.lng === 0) {
+              resolvedCoords = position;
+              if (!resolvedAddress) {
+                resolvedAddress = `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+              }
             }
+          } catch {
+            if (position && resolvedCoords.lat === 0 && resolvedCoords.lng === 0) {
+              resolvedCoords = position;
+            }
+          } finally {
+            clearTimeout(autoTimeout);
           }
-        } catch {
-          if (position && resolvedCoords.lat === 0 && resolvedCoords.lng === 0) {
-            resolvedCoords = position;
-          }
+        } else if (position && resolvedCoords.lat === 0 && resolvedCoords.lng === 0) {
+          resolvedCoords = position;
         }
       }
 
+      const isMissing = resolvedCoords.lat === 0 && resolvedCoords.lng === 0;
       const targetVenue: Venue = initialVenue ?? {
         key: `venue-${resolvedCoords.lat}-${resolvedCoords.lng}-${name}`,
         name: name.trim(),
@@ -255,7 +269,9 @@ export default function LogSpotModal({
         location: {
           lat: resolvedCoords.lat,
           lng: resolvedCoords.lng,
-          formattedAddress: resolvedAddress || "Near your location",
+          formattedAddress: isMissing
+            ? "Location not recorded"
+            : (resolvedAddress || "Near your location"),
           locality: resolvedLocality || undefined,
           osmId: resolvedOsmId,
         },

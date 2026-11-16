@@ -39,11 +39,15 @@ export function useJournalSync(uid: string | undefined, revision: string) {
     if (!uid) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      void syncJournal(uid, controller.signal).catch((e) => {
-        if (!controller.signal.aborted)
-          setError(e instanceof Error ? e.message : "Sync unavailable");
-      });
-    }, 800);
+      void syncJournal(uid, controller.signal)
+        .then(() => {
+          if (!controller.signal.aborted) setError("");
+        })
+        .catch((e) => {
+          if (!controller.signal.aborted)
+            setError(e instanceof Error ? e.message : "Sync unavailable");
+        });
+    }, 400);
     return () => {
       clearTimeout(timer);
       controller.abort();

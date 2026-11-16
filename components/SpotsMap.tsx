@@ -255,11 +255,26 @@ export default function SpotsMap({
         closeButton: true,
         autoClose: true,
         closeOnClick: false,
+        autoPan: true,
+        autoPanPaddingTopLeft: L.point(40, 80),
+        autoPanPaddingBottomRight: L.point(60, 50),
         className: "keepcheck-popover",
       })
         .setLatLng(latlng)
         .setContent(popupDiv)
         .openOn(map);
+
+      // Smoothly pan into view if pin is near any viewport edge (accounting for navbar and sidebar)
+      try {
+        map.panInside(latlng, {
+          paddingTopLeft: [40, 180],
+          paddingBottomRight: [60, 60],
+          animate: true,
+          duration: 0.4,
+        });
+      } catch {
+        // Fallback gracefully if map is undergoing a layout transition
+      }
 
       currentPopupRef.current = popup;
 
@@ -293,13 +308,20 @@ export default function SpotsMap({
     mapRef.current = map;
 
     const isDark = document.documentElement.classList.contains("dark");
-    const lightTileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-    const darkTileUrl = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+    const cartoKey = (process.env.NEXT_PUBLIC_CARTO_API_KEY || "").trim();
+    const hasCartoKey = Boolean(cartoKey);
+
+    const osmTileUrl = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+    const darkCartoUrl = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${cartoKey}`;
+    const lightCartoUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${cartoKey}`;
+
+    const darkTileUrl = hasCartoKey ? darkCartoUrl : osmTileUrl;
+    const lightTileUrl = hasCartoKey ? lightCartoUrl : osmTileUrl;
 
     const tileLayer = L.tileLayer(isDark ? darkTileUrl : lightTileUrl, {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: "abcd",
+      subdomains: hasCartoKey ? "abcd" : "abc",
       maxZoom: 19,
     }).addTo(map);
     tileLayerRef.current = tileLayer;
@@ -307,7 +329,10 @@ export default function SpotsMap({
     // MutationObserver to sync map tile theme with app dark/light toggle
     const themeObserver = new MutationObserver(() => {
       const darkNow = document.documentElement.classList.contains("dark");
-      tileLayer.setUrl(darkNow ? darkTileUrl : lightTileUrl);
+      const targetUrl = darkNow ? darkTileUrl : lightTileUrl;
+      if (tileLayerRef.current && (tileLayerRef.current as any)._url !== targetUrl) {
+        tileLayerRef.current.setUrl(targetUrl);
+      }
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,

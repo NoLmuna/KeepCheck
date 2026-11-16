@@ -91,8 +91,8 @@ export default memo(function SpotCard({
             </h3>
             <p className="text-xs text-stone-600 dark:text-stone-300 truncate mt-0.5">
               {spot.locationMissing ? (
-                <span className="text-amber-700 dark:text-amber-400 font-medium">
-                  Set location on map →
+                <span className="text-stone-400 dark:text-stone-400 font-normal">
+                  No pin yet
                 </span>
               ) : (
                 <>
