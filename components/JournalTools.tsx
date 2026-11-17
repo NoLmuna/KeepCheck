@@ -8,7 +8,6 @@ import {
   Share2,
   Edit3,
   Trash2,
-  Plus,
 } from "lucide-react";
 import type { Spot, VisitLog, SpotCollection } from "@/lib/models";
 import { shareCard } from "@/lib/journalMedia";

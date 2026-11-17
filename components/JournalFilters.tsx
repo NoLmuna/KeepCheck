@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SlidersHorizontal, Sparkles, RotateCcw, Coffee, Utensils, Croissant, Wine, MapPin } from "lucide-react";
+import { SlidersHorizontal, Sparkles, RotateCcw, Coffee, Utensils, Croissant, Wine } from "lucide-react";
 import { defaultFilters } from "@/lib/journal";
 import { vibeTags, type SpotCollection } from "@/lib/models";
 import type { Filters } from "@/lib/journal";

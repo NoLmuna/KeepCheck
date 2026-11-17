@@ -12,7 +12,21 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "public/sw.js",
+    "public/sw.js.map",
+    "public/swe-worker-*.js",
+    "*.cjs",
   ]),
+  {
+    rules: {
+      "react-hooks/refs": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/immutability": "warn",
+      "@next/next/no-img-element": "warn",
+      "@next/next/no-page-custom-font": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;

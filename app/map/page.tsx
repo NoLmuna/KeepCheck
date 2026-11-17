@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useAuth } from "@/lib/auth";
 import JournalApp from "@/components/JournalApp";
 import LandingPage from "@/components/LandingPage";

@@ -28,7 +28,7 @@ import {
 import { getFirebaseAuth } from "./firebase";
 import { useToast } from "./toast";
 import { associateLocalRecordsWithUser } from "./journalSync";
-import type { AuthActionState } from "@/components/AuthTransitionOverlay";
+import AuthTransitionOverlay, { type AuthActionState } from "@/components/AuthTransitionOverlay";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -426,6 +426,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
   // Instant, clean sign out of both NextAuth and Firebase
   const signOut = useCallback(async () => {
+    setAuthAction("signing-out");
     // 1. Immediately abort any in-flight token bridge
     if (tokenBridgeAbortController.current) {
       tokenBridgeAbortController.current.abort();
@@ -446,7 +447,6 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     setUser(null);
     setIsGuest(false);
     prevUserRef.current = null;
-    setAuthAction(null);
 
     // 4. Concurrently sign out of both NextAuth and Firebase
     try {
@@ -457,6 +457,8 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       ]);
     } catch (error) {
       console.error("[KeepCheck Auth] Error during sign-out:", error);
+    } finally {
+      setAuthAction(null);
     }
 
     showToast("Signed out successfully", "info");
@@ -513,6 +515,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      <AuthTransitionOverlay action={authAction} />
     </AuthContext.Provider>
   );
 }

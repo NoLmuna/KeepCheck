@@ -10,8 +10,6 @@ import {
   ArrowRight,
   Bookmark,
   Footprints,
-  Check,
-  X,
   Compass,
   Zap,
 } from "lucide-react";

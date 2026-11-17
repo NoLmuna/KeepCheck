@@ -7,7 +7,6 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   Compass,
-  MapPin,
   Plus,
   BookOpen,
   CheckCircle2,
@@ -65,8 +64,18 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
   const { showToast } = useToast();
   const context = useMapContext();
 
+  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [selected, setSelected] = useState<Venue | null>(null);
+  const [initialAction, setInitialAction] = useState<"visit" | "wishlist" | undefined>(undefined);
   const [adjustingSpot, setAdjustingSpot] = useState<Spot | null>(null);
   const [externalMapSearch, setExternalMapSearch] = useState<string | null>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [accountDataOpen, setAccountDataOpen] = useState(false);
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"map" | "journal">(
+    mode === "list" ? "journal" : "map"
+  );
 
   const handleConfirmAdjustPin = useCallback(
     async (spot: Spot, location: SpotLocation) => {
@@ -87,10 +96,6 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
     [showToast],
   );
 
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
-  const [selected, setSelected] = useState<Venue | null>(null);
-  const [initialAction, setInitialAction] = useState<"visit" | "wishlist" | undefined>(undefined);
-
   const handleVenueSelection = useCallback((venue: Venue | null, action?: "visit" | "wishlist") => {
     setSelected(venue);
     setInitialAction(action);
@@ -98,14 +103,6 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
       setMobileTab("journal");
     }
   }, []);
-
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const [accountDataOpen, setAccountDataOpen] = useState(false);
-  const [logModalOpen, setLogModalOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [mobileTab, setMobileTab] = useState<"map" | "journal">(
-    mode === "list" ? "journal" : "map"
-  );
 
   // Search input and Photon dropdown in sidebar
   const [searchQuery, setSearchQuery] = useState("");
