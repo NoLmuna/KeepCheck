@@ -443,3 +443,40 @@ test("cross-device synced photos resolve remote Cloudinary URLs in gallery and c
   // Visit 2 photo without local ID but with remote url
   assert.equal(gallery[2].url, "https://res.cloudinary.com/demo/image/upload/croissant.webp");
 });
+
+test("repeat visit rating calculation and deleteVisitLog updates venue overall rating", async () => {
+  const { db } = load("app/db.ts");
+  const journal = load("lib/journal.ts");
+
+  const spot = await journal.saveJournalEntry(
+    place,
+    { ...base, name: "Multi Visit Spot", status: "visited" },
+    { rating: 5, visitedAt: 1000, notes: "First visit", itemsOrdered: [], photos: [] }
+  );
+
+  assert.equal(spot.overallRating, 5);
+
+  // Add second visit with rating 3
+  await journal.saveJournalEntry(
+    { ...place, record: spot },
+    { ...base, name: "Multi Visit Spot", status: "visited" },
+    { rating: 3, visitedAt: 2000, notes: "Second visit", itemsOrdered: [], photos: [] }
+  );
+
+  // Average should now be (5 + 3) / 2 = 4
+  const updatedSpot = await db.venues.get(spot.id);
+  assert.equal(updatedSpot.overallRating, 4);
+
+  // Get visits
+  const visits = await db.visitLogs.where("spotId").equals(spot.id).filter(v => !v.isDeleted).toArray();
+  assert.equal(visits.length, 2);
+
+  // Delete the second visit (rating 3)
+  const visitToDelete = visits.find(v => v.rating === 3);
+  await journal.deleteVisitLog(spot.id, visitToDelete.id);
+
+  // After deletion, remaining visit is rating 5, so overallRating recalculates to 5
+  const afterDeleteSpot = await db.venues.get(spot.id);
+  assert.equal(afterDeleteSpot.overallRating, 5);
+});
+

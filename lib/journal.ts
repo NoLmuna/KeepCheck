@@ -148,6 +148,76 @@ export async function saveJournalEntry(
     },
   );
 }
+
+/**
+ * Recalculates a venue's overall rating based on all remaining non-deleted visits,
+ * writing the updated rating directly to Dexie with pending syncStatus.
+ */
+export async function recalculateVenueRating(spotId: string): Promise<number | undefined> {
+  return db.transaction("rw", db.venues, db.visitLogs, async () => {
+    const venue = await db.venues.get(spotId);
+    if (!venue) return undefined;
+
+    const activeVisits = await db.visitLogs
+      .where("spotId")
+      .equals(spotId)
+      .filter((v) => !v.isDeleted)
+      .toArray();
+
+    const overallRating =
+      activeVisits.length > 0
+        ? activeVisits.reduce((sum, v) => sum + v.rating, 0) / activeVisits.length
+        : undefined;
+
+    const now = Math.max(Date.now(), (venue.updatedAt ?? 0) + 1);
+    await db.venues.update(spotId, {
+      overallRating,
+      updatedAt: now,
+      syncStatus: "pending",
+    });
+
+    return overallRating;
+  });
+}
+
+/**
+ * Soft-deletes a visit log from Dexie and automatically recalculates the
+ * parent venue's overall rating.
+ */
+export async function deleteVisitLog(spotId: string, visitId: string): Promise<void> {
+  await db.transaction("rw", db.venues, db.visitLogs, async () => {
+    const visit = await db.visitLogs.get(visitId);
+    if (!visit) return;
+
+    const now = Math.max(Date.now(), (visit.updatedAt ?? 0) + 1);
+    await db.visitLogs.update(visitId, {
+      isDeleted: true,
+      updatedAt: now,
+      syncStatus: "pending",
+    });
+
+    const activeVisits = await db.visitLogs
+      .where("spotId")
+      .equals(spotId)
+      .filter((v) => !v.isDeleted && v.id !== visitId)
+      .toArray();
+
+    const overallRating =
+      activeVisits.length > 0
+        ? activeVisits.reduce((sum, v) => sum + v.rating, 0) / activeVisits.length
+        : undefined;
+
+    const venue = await db.venues.get(spotId);
+    if (venue) {
+      await db.venues.update(spotId, {
+        overallRating,
+        updatedAt: Math.max(now, (venue.updatedAt ?? 0) + 1),
+        syncStatus: "pending",
+      });
+    }
+  });
+}
+
 export async function deleteVenue(id: string) {
   await db.transaction("rw", db.venues, db.visitLogs, async () => {
     const current = await db.venues.get(id);

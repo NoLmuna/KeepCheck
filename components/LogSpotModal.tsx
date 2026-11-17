@@ -44,7 +44,8 @@ export default function LogSpotModal({
   onClose,
   onSaved,
 }: Props) {
-  const { user } = useAuth();
+  const { user, cachedSession } = useAuth();
+  const uid = user?.uid ?? cachedSession?.uid;
   const { showToast } = useToast();
 
   const [mode, setMode] = useState<"visit" | "wishlist">(
@@ -166,7 +167,7 @@ export default function LogSpotModal({
     if (!newCollectionName.trim()) return;
     setCreatingCollection(true);
     try {
-      const col = await saveCollection(newCollectionName.trim(), "", user?.uid);
+      const col = await saveCollection(newCollectionName.trim(), "", uid);
       setSelectedCollections((prev) => [...prev, col.id]);
       setNewCollectionName("");
       setShowNewCollection(false);
@@ -315,7 +316,7 @@ export default function LogSpotModal({
         targetVenue,
         draft,
         visit,
-        user?.uid,
+        uid,
         forceDuplicateId
       );
 

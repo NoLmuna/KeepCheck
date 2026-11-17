@@ -17,13 +17,15 @@ import {
   Navigation,
   Search,
   X,
+  Check,
   Loader2,
   RefreshCw,
   Star,
   Bookmark,
   ChevronUp,
 } from "lucide-react";
-import type { Spot, SpotCollection } from "@/lib/models";
+import { db } from "@/app/db";
+import type { Spot, SpotCollection, SpotLocation } from "@/lib/models";
 import {
   coordinateLabel,
   formatDistance,
@@ -37,6 +39,8 @@ import {
   fetchRoute,
   lookupClickLocation,
   searchVenues,
+  getOpeningHoursStatus,
+  reverseLocation,
   type Route,
 } from "@/lib/osm";
 import type { useMapContext } from "@/lib/useMapContext";
@@ -93,6 +97,11 @@ interface Props {
   externalSelection: Venue | null;
   onSelection: (venue: Venue | null, initialAction?: "visit" | "wishlist") => void;
   splitPaneMode?: boolean;
+  adjustingSpot?: Spot | null;
+  onCancelAdjustPin?: () => void;
+  onConfirmAdjustPin?: (spot: Spot, location: SpotLocation) => Promise<void>;
+  externalSearchQuery?: string | null;
+  onClearExternalSearch?: () => void;
 }
 
 export default function SpotsMap({
@@ -107,6 +116,11 @@ export default function SpotsMap({
   externalSelection,
   onSelection,
   splitPaneMode = false,
+  adjustingSpot,
+  onCancelAdjustPin,
+  onConfirmAdjustPin,
+  externalSearchQuery,
+  onClearExternalSearch,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -155,6 +169,30 @@ export default function SpotsMap({
   useEffect(() => {
     onSelectionRef.current = onSelection;
   });
+
+  // Pin placement / adjustment mode state
+  const [internalAdjustingSpot, setInternalAdjustingSpot] = useState<Spot | null>(null);
+  const activeAdjustingSpot = adjustingSpot ?? internalAdjustingSpot;
+  const adjustingSpotRef = useRef<Spot | null>(null);
+  useEffect(() => {
+    adjustingSpotRef.current = activeAdjustingSpot;
+  }, [activeAdjustingSpot]);
+
+  const [adjustedCoords, setAdjustedCoords] = useState<Coordinates | null>(null);
+  const [adjustedAddress, setAdjustedAddress] = useState<string>("");
+  const [adjustedLocality, setAdjustedLocality] = useState<string>("");
+  const [isResolvingAdjustedAddress, setIsResolvingAdjustedAddress] = useState(false);
+  const adjustPinMarkerRef = useRef<L.Marker | null>(null);
+  const reverseAbortRef = useRef<AbortController | null>(null);
+
+  // Sync external search query from sidebar
+  useEffect(() => {
+    if (externalSearchQuery && externalSearchQuery.trim().length > 0) {
+      setMapSearchQuery(externalSearchQuery.trim());
+      setMapSearchOpen(true);
+      onClearExternalSearch?.();
+    }
+  }, [externalSearchQuery, onClearExternalSearch]);
 
   const saved = useMemo(
     () =>
@@ -380,6 +418,162 @@ export default function SpotsMap({
     droppedPinMarkerRef.current = pinMarker;
   }, []);
 
+  const updateAdjustedPosition = useCallback((coords: Coordinates) => {
+    setAdjustedCoords(coords);
+    if (adjustPinMarkerRef.current) {
+      adjustPinMarkerRef.current.setLatLng([coords.lat, coords.lng]);
+    }
+
+    reverseAbortRef.current?.abort();
+    const controller = new AbortController();
+    reverseAbortRef.current = controller;
+    setIsResolvingAdjustedAddress(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const resolved = await reverseLocation(coords, controller.signal);
+        if (!controller.signal.aborted) {
+          setAdjustedAddress(resolved.formattedAddress || coordinateLabel(coords));
+          setAdjustedLocality(resolved.locality || "");
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setAdjustedAddress(coordinateLabel(coords));
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsResolvingAdjustedAddress(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!activeAdjustingSpot) {
+      if (adjustPinMarkerRef.current) {
+        adjustPinMarkerRef.current.remove();
+        adjustPinMarkerRef.current = null;
+      }
+      setAdjustedCoords(null);
+      setAdjustedAddress("");
+      setAdjustedLocality("");
+      return;
+    }
+
+    // Close any open popups or drawers
+    map.closePopup();
+    setNearbyDrawerOpen(false);
+    setMapSearchOpen(false);
+
+    const hasValidCoords =
+      activeAdjustingSpot.location &&
+      Number.isFinite(activeAdjustingSpot.location.lat) &&
+      Number.isFinite(activeAdjustingSpot.location.lng) &&
+      !activeAdjustingSpot.locationMissing;
+
+    const center = map.getCenter();
+    const initialCoords: Coordinates = hasValidCoords
+      ? { lat: activeAdjustingSpot.location.lat, lng: activeAdjustingSpot.location.lng }
+      : { lat: center.lat, lng: center.lng };
+
+    setAdjustedCoords(initialCoords);
+    setAdjustedAddress(activeAdjustingSpot.location?.formattedAddress || coordinateLabel(initialCoords));
+    setAdjustedLocality(activeAdjustingSpot.location?.locality || "");
+
+    map.flyTo([initialCoords.lat, initialCoords.lng], Math.max(map.getZoom(), 16), {
+      duration: 0.5,
+    });
+
+    const adjustIcon = L.divIcon({
+      className: "adjust-pin-marker",
+      html: `
+        <div class="relative flex items-center justify-center -translate-x-1/2 -translate-y-full cursor-grab active:cursor-grabbing">
+          <div class="w-10 h-10 rounded-2xl bg-amber-600 text-white flex items-center justify-center shadow-2xl border-2 border-white ring-4 ring-amber-500/40 animate-pulse">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>
+            </svg>
+          </div>
+        </div>
+      `,
+      iconSize: [40, 40],
+      iconAnchor: [20, 40],
+    });
+
+    if (adjustPinMarkerRef.current) {
+      adjustPinMarkerRef.current.remove();
+    }
+
+    const marker = L.marker([initialCoords.lat, initialCoords.lng], {
+      icon: adjustIcon,
+      draggable: true,
+      zIndexOffset: 2000,
+    }).addTo(map);
+
+    marker.on("dragend", () => {
+      const pos = marker.getLatLng();
+      updateAdjustedPosition({ lat: pos.lat, lng: pos.lng });
+    });
+
+    adjustPinMarkerRef.current = marker;
+
+    return () => {
+      marker.remove();
+      adjustPinMarkerRef.current = null;
+    };
+  }, [activeAdjustingSpot, updateAdjustedPosition]);
+
+  const handleConfirmAdjustPin = useCallback(async () => {
+    if (!activeAdjustingSpot || !adjustedCoords) return;
+
+    const newLoc: SpotLocation = {
+      lat: adjustedCoords.lat,
+      lng: adjustedCoords.lng,
+      formattedAddress: adjustedAddress || coordinateLabel(adjustedCoords),
+      ...(adjustedLocality ? { locality: adjustedLocality } : {}),
+      osmId: activeAdjustingSpot.location?.osmId,
+    };
+
+    if (onConfirmAdjustPin) {
+      await onConfirmAdjustPin(activeAdjustingSpot, newLoc);
+    } else {
+      const now = Math.max(Date.now(), activeAdjustingSpot.updatedAt + 1);
+      await db.venues.update(activeAdjustingSpot.id, {
+        location: newLoc,
+        locationMissing: false,
+        updatedAt: now,
+        syncStatus: "pending",
+      });
+      const updated = await db.venues.get(activeAdjustingSpot.id);
+      if (updated) {
+        setSelected(journalVenue(updated));
+      }
+      showToast(`Pin updated for ${activeAdjustingSpot.name}`, "success");
+    }
+
+    setInternalAdjustingSpot(null);
+    if (adjustPinMarkerRef.current) {
+      adjustPinMarkerRef.current.remove();
+      adjustPinMarkerRef.current = null;
+    }
+  }, [activeAdjustingSpot, adjustedCoords, adjustedAddress, adjustedLocality, onConfirmAdjustPin, showToast]);
+
+  const handleCancelAdjustPin = useCallback(() => {
+    setInternalAdjustingSpot(null);
+    onCancelAdjustPin?.();
+    if (adjustPinMarkerRef.current) {
+      adjustPinMarkerRef.current.remove();
+      adjustPinMarkerRef.current = null;
+    }
+  }, [onCancelAdjustPin]);
+
   // Function to open the compact floating popover card directly above a pin/POI
   const openVenuePopover = useCallback(
     (
@@ -399,7 +593,7 @@ export default function SpotsMap({
 
       // Category Pill / Tag
       const categoryContainer = document.createElement("div");
-      categoryContainer.className = "flex items-center gap-1.5";
+      categoryContainer.className = "flex items-center gap-1.5 flex-wrap";
 
       const catName = getCategoryDisplayName(activeVenue.category);
       const catIconSvg = categorySvgs[activeVenue.category] ?? categorySvgs.other;
@@ -409,6 +603,23 @@ export default function SpotsMap({
         "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60";
       catBadge.innerHTML = `<span class="w-3 h-3 flex items-center justify-center">${catIconSvg}</span><span>${catName}</span>`;
       categoryContainer.appendChild(catBadge);
+
+      // Opening hours status badge if available
+      const hoursStatus = getOpeningHoursStatus(activeVenue.openingHours);
+      if (hoursStatus) {
+        const hoursBadge = document.createElement("span");
+        if (hoursStatus === "open") {
+          hoursBadge.className =
+            "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60";
+          hoursBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Open now</span>`;
+        } else {
+          hoursBadge.className =
+            "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700";
+          hoursBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-stone-400"></span><span>Closed</span>`;
+        }
+        categoryContainer.appendChild(hoursBadge);
+      }
+
       popupDiv.appendChild(categoryContainer);
 
       const titleEl = document.createElement("h4");
@@ -513,25 +724,27 @@ export default function SpotsMap({
         popupDiv.appendChild(nearbyContainer);
       }
 
+      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
       const popup = L.popup({
         offset: [0, -28],
         closeButton: true,
         autoClose: true,
         closeOnClick: false,
         autoPan: true,
-        autoPanPaddingTopLeft: L.point(40, 80),
-        autoPanPaddingBottomRight: L.point(60, 50),
+        autoPanPaddingTopLeft: isMobile ? L.point(20, 100) : L.point(40, 80),
+        autoPanPaddingBottomRight: isMobile ? L.point(20, 220) : L.point(60, 50),
         className: "keepcheck-popover",
       })
         .setLatLng(latlng)
         .setContent(popupDiv)
         .openOn(map);
 
-      // Smoothly pan into view
+      // Smoothly pan into view with mobile-adjusted padding
       try {
         map.panInside(latlng, {
-          paddingTopLeft: [40, 180],
-          paddingBottomRight: [60, 60],
+          paddingTopLeft: isMobile ? [20, 110] : [40, 180],
+          paddingBottomRight: isMobile ? [20, 240] : [60, 60],
           animate: true,
           duration: 0.4,
         });
@@ -659,6 +872,12 @@ export default function SpotsMap({
 
     // Handle Map Click: Snap to Store within 40m, or lookup real store / street name
     const handleMapClick = async (e: L.LeafletMouseEvent) => {
+      // If user is currently in Pin Adjustment Mode, clicking the map moves the pin
+      if (adjustingSpotRef.current) {
+        updateAdjustedPosition({ lat: e.latlng.lat, lng: e.latlng.lng });
+        return;
+      }
+
       reverse.current?.abort();
       const controller = new AbortController();
       reverse.current = controller;
@@ -1375,6 +1594,7 @@ export default function SpotsMap({
                 routeStatus={routeStatus}
                 onClose={close}
                 onSave={onSave}
+                onAdjustPin={(s) => setInternalAdjustingSpot(s)}
               />
             </div>
           ) : (
@@ -1397,11 +1617,11 @@ export default function SpotsMap({
         </div>
       )}
 
-      {/* Floating Interactive Nearby Spots Drawer (Bottom-Right) */}
+      {/* Floating Interactive Nearby Spots Drawer (Bottom-Right / Mobile Bottom Sheet) */}
       {nearbyDrawerOpen && (
         <div
           ref={nearbyDrawerRef}
-          className="absolute right-3.5 bottom-20 z-30 w-80 max-w-[calc(100vw-2rem)] max-h-96 bg-white/98 dark:bg-[#1E1815]/98 backdrop-blur-md rounded-2xl shadow-2xl border border-stone-200/90 dark:border-stone-800 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+          className="absolute left-3.5 right-3.5 bottom-4 sm:bottom-20 sm:left-auto sm:right-3.5 z-40 sm:w-80 max-h-[55dvh] sm:max-h-96 bg-white/98 dark:bg-[#1E1815]/98 backdrop-blur-md rounded-2xl shadow-2xl border border-stone-200/90 dark:border-stone-800 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         >
           {/* Drawer Header */}
           <div className="p-3 bg-stone-50/80 dark:bg-stone-900/60 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
@@ -1540,6 +1760,54 @@ export default function SpotsMap({
           </button>
         </div>
       </div>
+
+      {/* Active Pin Placement Mode Bar */}
+      {activeAdjustingSpot && adjustedCoords && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-1.75rem)] max-w-lg bg-white/98 dark:bg-[#1E1815]/98 backdrop-blur-md border border-amber-300 dark:border-amber-800 rounded-2xl shadow-2xl p-3.5 flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-600 animate-pulse" />
+                <h4 className="font-serif font-bold text-sm text-stone-900 dark:text-white truncate">
+                  Adjusting Pin for &ldquo;{activeAdjustingSpot.name}&rdquo;
+                </h4>
+              </div>
+              <p className="text-xs text-stone-500 dark:text-stone-400 truncate mt-0.5">
+                {isResolvingAdjustedAddress ? (
+                  <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Resolving address…</span>
+                  </span>
+                ) : (
+                  adjustedAddress || `${adjustedCoords.lat.toFixed(5)}, ${adjustedCoords.lng.toFixed(5)}`
+                )}
+              </p>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-stone-600 dark:text-stone-300">
+            Tap anywhere on the map or drag the pin to set the exact storefront entrance.
+          </p>
+
+          <div className="flex items-center justify-end gap-2 pt-1 border-t border-stone-200/80 dark:border-stone-800">
+            <button
+              type="button"
+              onClick={handleCancelAdjustPin}
+              className="px-3.5 py-1.5 text-xs font-semibold text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white rounded-lg transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmAdjustPin}
+              className="px-4 py-1.5 bg-amber-700 hover:bg-amber-800 active:bg-amber-900 text-white text-xs font-bold rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Confirm Pin Location</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

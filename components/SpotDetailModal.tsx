@@ -33,7 +33,8 @@ export default function SpotDetailModal({
     [spotId],
   );
 
-  const { user } = useAuth();
+  const { user, cachedSession } = useAuth();
+  const currentUid = user?.uid ?? cachedSession?.uid;
   const { showToast } = useToast();
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
@@ -82,7 +83,7 @@ export default function SpotDetailModal({
       const newThumb = await makeThumbnailFromBlob(image.blob);
       await db.spots.update(spotId, { thumbnail: newThumb, pendingSync: true, syncStatus: "pending", updatedAt: Date.now() });
 
-      if (user) void db.spots.get(spotId).then(current => current && syncSpotToFirestore(user.uid, current)).catch(console.error);
+      if (currentUid) void db.spots.get(spotId).then(current => current && syncSpotToFirestore(currentUid, current)).catch(console.error);
 
       setRegenerated(true);
       showToast("Thumbnail updated successfully", "success");
@@ -92,7 +93,7 @@ export default function SpotDetailModal({
     } finally {
       setRegenerating(false);
     }
-  }, [image, spotId, user, showToast]);
+  }, [image, spotId, currentUid, showToast]);
 
   /* ---- Render ---- */
   return (

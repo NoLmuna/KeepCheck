@@ -319,3 +319,29 @@ test("dense viewport POIs are nearest-first, deduplicated and capped; GPS commit
  const bounds=discoveryBounds({south:10,north:20,west:110,east:130},center);
  assert.ok(bounds.north-bounds.south < .037);assert.ok(bounds.east-bounds.west < .04);
 });
+
+test("opening hours parser safely evaluates OSM time strings and handles invalid formats", () => {
+  const { getOpeningHoursStatus } = load("lib/osm.ts");
+
+  const tuesdayNoon = new Date("2026-11-17T12:30:00"); // Tuesday 12:30
+  const tuesdayNight = new Date("2026-11-17T23:30:00"); // Tuesday 23:30
+  const sundayNoon = new Date("2026-11-22T12:30:00"); // Sunday 12:30
+
+  assert.equal(getOpeningHoursStatus("24/7", tuesdayNoon), "open");
+  assert.equal(getOpeningHoursStatus("closed", tuesdayNoon), "closed");
+  assert.equal(getOpeningHoursStatus("off", tuesdayNoon), "closed");
+
+  assert.equal(getOpeningHoursStatus("Mo-Su 10:00-22:00", tuesdayNoon), "open");
+  assert.equal(getOpeningHoursStatus("Mo-Su 10:00-22:00", tuesdayNight), "closed");
+
+  assert.equal(getOpeningHoursStatus("Mo-Fr 08:00-18:00; Sa-Su off", tuesdayNoon), "open");
+  assert.equal(getOpeningHoursStatus("Mo-Fr 08:00-18:00; Sa-Su off", sundayNoon), "closed");
+
+  assert.equal(getOpeningHoursStatus("daily 07:00-21:00", tuesdayNoon), "open");
+  assert.equal(getOpeningHoursStatus("Tu off", tuesdayNoon), "closed");
+
+  // Fallback to null on unparseable / missing
+  assert.equal(getOpeningHoursStatus(undefined, tuesdayNoon), null);
+  assert.equal(getOpeningHoursStatus("", tuesdayNoon), null);
+  assert.equal(getOpeningHoursStatus("sunrise-sunset", tuesdayNoon), null);
+});

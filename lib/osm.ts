@@ -335,6 +335,7 @@ export async function discoverVenues(
       name: venueName,
       category,
       cuisine: t.cuisine,
+      openingHours: t.opening_hours,
       location: {
         lat,
         lng,
@@ -489,6 +490,7 @@ export async function lookupClickLocation(
           name,
           category: cat,
           cuisine: t.cuisine,
+          openingHours: t.opening_hours,
           location: {
             lat,
             lng,
@@ -685,4 +687,127 @@ export async function autoResolveLegacySpotLocations(spots: Spot[]): Promise<voi
     }
   }
 }
+
+/**
+ * Safely parses common OpenStreetMap opening_hours format to determine
+ * whether a venue is currently open or closed. Returns null if hours are
+ * unspecified, unparseable, or use complex non-standard conditions.
+ */
+export function getOpeningHoursStatus(
+  openingHours?: string,
+  date = new Date(),
+): "open" | "closed" | null {
+  if (!openingHours || typeof openingHours !== "string") return null;
+
+  const raw = openingHours.trim();
+  if (!raw) return null;
+
+  // Handle trivial 24/7 or closed indicators
+  if (/^24\s*\/\s*7$/i.test(raw)) return "open";
+  if (/^(off|closed)$/i.test(raw)) return "closed";
+
+  try {
+    const daysMap: Record<string, number> = {
+      su: 0,
+      mo: 1,
+      tu: 2,
+      we: 3,
+      th: 4,
+      fr: 5,
+      sa: 6,
+    };
+
+    const currentDay = date.getDay(); // 0 = Sunday, 1 = Monday, ...
+    const currentMinutes = date.getHours() * 60 + date.getMinutes();
+
+    // Opening hours can be multiple rules separated by semicolon (e.g., "Mo-Fr 08:00-18:00; Sa 09:00-17:00; Su off")
+    const rules = raw.split(";").map((r) => r.trim()).filter(Boolean);
+
+    let matchedDayRule = false;
+    let isOpenOnMatchedRule = false;
+
+    for (const rule of rules) {
+      const parts = rule.split(/\s+/);
+      if (parts.length < 2) continue;
+
+      const daySpec = parts[0].toLowerCase();
+      const timeSpec = parts.slice(1).join(" ");
+
+      let appliesToToday = false;
+
+      if (daySpec === "daily" || daySpec === "mo-su" || daySpec === "su-sa") {
+        appliesToToday = true;
+      } else {
+        const dayTokens = daySpec.split(",");
+        for (const token of dayTokens) {
+          if (token.includes("-")) {
+            const [startD, endD] = token.split("-");
+            const startIdx = daysMap[startD];
+            const endIdx = daysMap[endD];
+            if (startIdx !== undefined && endIdx !== undefined) {
+              if (startIdx <= endIdx) {
+                if (currentDay >= startIdx && currentDay <= endIdx) {
+                  appliesToToday = true;
+                  break;
+                }
+              } else {
+                if (currentDay >= startIdx || currentDay <= endIdx) {
+                  appliesToToday = true;
+                  break;
+                }
+              }
+            }
+          } else {
+            const singleIdx = daysMap[token];
+            if (singleIdx === currentDay) {
+              appliesToToday = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!appliesToToday) continue;
+
+      matchedDayRule = true;
+
+      if (/^(off|closed)$/i.test(timeSpec)) {
+        return "closed";
+      }
+
+      const intervals = timeSpec.split(",");
+      for (const interval of intervals) {
+        const timeMatch = interval.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+        if (timeMatch) {
+          const startMin = parseInt(timeMatch[1], 10) * 60 + parseInt(timeMatch[2], 10);
+          const endMin = parseInt(timeMatch[3], 10) * 60 + parseInt(timeMatch[4], 10);
+
+          if (endMin <= startMin) {
+            // Spans midnight (e.g. 18:00 - 02:00)
+            if (currentMinutes >= startMin || currentMinutes < endMin) {
+              isOpenOnMatchedRule = true;
+              break;
+            }
+          } else {
+            if (currentMinutes >= startMin && currentMinutes <= endMin) {
+              isOpenOnMatchedRule = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (isOpenOnMatchedRule) return "open";
+    }
+
+    if (matchedDayRule) {
+      return isOpenOnMatchedRule ? "open" : "closed";
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 

@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   ArrowLeft,
   Navigation,
+  Compass,
   Star,
   Bookmark,
   MapPin,
@@ -42,10 +43,12 @@ import {
 import {
   DuplicateVenueError,
   deleteVenue,
+  deleteVisitLog,
   saveCollection,
   type SpotDraft,
   type VisitDraft,
 } from "@/lib/journal";
+import { getOpeningHoursStatus } from "@/lib/osm";
 import { compressVisitPhoto, shareCard, resolveSpotGalleryPhotos, type GalleryPhotoItem } from "@/lib/journalMedia";
 import JournalPhoto from "./JournalPhoto";
 import { useToast } from "@/lib/toast";
@@ -71,6 +74,7 @@ interface Props {
   onSave: SaveVenue;
   collections: SpotCollection[];
   initialAction?: "visit" | "wishlist";
+  onAdjustPin?: (spot: Spot) => void;
 }
 
 function CategoryIcon({
@@ -311,7 +315,14 @@ export default function VenueSheet(p: Props) {
       setItems("");
       setSpend("");
       setRating(0);
-      showToast(isWish ? "Saved to Want to Try" : "Visit logged successfully", "success");
+      showToast(
+        action === "edit"
+          ? "Venue details updated"
+          : isWish
+            ? "Saved to Want to Try"
+            : "Visit logged successfully",
+        "success"
+      );
     } catch (e) {
       if (e instanceof DuplicateVenueError) {
         setDuplicate(e.spot);
@@ -389,6 +400,22 @@ export default function VenueSheet(p: Props) {
                     {spot.budgetTier}
                   </span>
                 )}
+                {p.venue.openingHours && (() => {
+                  const hoursStatus = getOpeningHoursStatus(p.venue.openingHours);
+                  if (!hoursStatus) return null;
+                  return (
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 ${
+                        hoursStatus === "open"
+                          ? "bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                          : "bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700"
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${hoursStatus === "open" ? "bg-emerald-500" : "bg-stone-400"}`} />
+                      <span>{hoursStatus === "open" ? "Open now" : "Closed"}</span>
+                    </span>
+                  );
+                })()}
               </div>
 
               <h2
@@ -399,15 +426,29 @@ export default function VenueSheet(p: Props) {
                 {spot?.name ?? p.venue.name}
               </h2>
 
-              <p className="text-xs text-stone-600 dark:text-stone-300 truncate mt-0.5 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
-                <span>{humanReadableLocation(p.venue.location, spot?.locationMissing)}</span>
-                {p.position && !spot?.locationMissing && (
-                  <span className="font-semibold text-stone-700 dark:text-stone-300 tabular-nums">
-                    {" "}· {formatDistance(haversine(p.position, p.venue.location))} away
-                  </span>
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                <p className="text-xs text-stone-600 dark:text-stone-300 truncate flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
+                  <span>{humanReadableLocation(p.venue.location, spot?.locationMissing)}</span>
+                  {p.position && !spot?.locationMissing && (
+                    <span className="font-semibold text-stone-700 dark:text-stone-300 tabular-nums">
+                      {" "}· {formatDistance(haversine(p.position, p.venue.location))} away
+                    </span>
+                  )}
+                </p>
+
+                {spot && p.onAdjustPin && (
+                  <button
+                    type="button"
+                    onClick={() => p.onAdjustPin?.(spot)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition-colors cursor-pointer"
+                    title="Adjust pin position on map"
+                  >
+                    <Compass className="w-3 h-3 text-amber-700 dark:text-amber-400" />
+                    <span>Adjust pin</span>
+                  </button>
                 )}
-              </p>
+              </div>
             </div>
           </div>
 
@@ -505,12 +546,17 @@ export default function VenueSheet(p: Props) {
                       `${spot.overallRating ? `★ ${spot.overallRating.toFixed(1)}/5 · ` : ""}${
                         spot.location.locality ?? spot.location.formattedAddress
                       }`,
-                      spot.vibeTags.map((v) => v.replaceAll("-", " ")).join(" · "),
+                      (spot.vibeTags ?? []).map((v) => v.replaceAll("-", " ")).join(" · "),
                       ...(spot.notes ? [`Note: ${spot.notes}`] : []),
-                      ...spot.menuItems
+                      ...(spot.menuItems ?? [])
                         .filter((m) => m.verdict === "must-order")
                         .map((m) => `Must order: ${m.name}`),
-                    ]).catch(() => setMessage("Could not create share card"));
+                    ])
+                      .then(() => showToast("Share card generated!", "success"))
+                      .catch((err) => {
+                        console.error("[KeepCheck] Share card error:", err);
+                        setMessage("Could not create share card");
+                      });
                   }}
                   className="flex-1 py-1.5 px-3 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-stone-200/60 dark:border-stone-700"
                 >
@@ -723,15 +769,41 @@ export default function VenueSheet(p: Props) {
                           <span className="text-stone-500 dark:text-stone-400 tabular-nums">· ₱{m.price}</span>
                         )}
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          m.verdict === "must-order"
-                            ? "bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200"
-                            : "bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300"
-                        }`}
-                      >
-                        {m.verdict === "must-order" ? "Must Order" : "Skip"}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            m.verdict === "must-order"
+                              ? "bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200"
+                              : "bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300"
+                          }`}
+                        >
+                          {m.verdict === "must-order" ? "Must Order" : "Skip"}
+                        </span>
+                        {spot && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updatedMenu = (spot.menuItems ?? []).filter((item) => item.id !== m.id);
+                              setMenu(updatedMenu);
+                              void p.onSave(p.venue, {
+                                name: spot.name,
+                                category: spot.category,
+                                status: spot.status,
+                                vibeTags: spot.vibeTags,
+                                menuItems: updatedMenu,
+                                collectionIds: spot.collectionIds,
+                                notes: spot.notes,
+                                budgetTier: spot.budgetTier,
+                              });
+                            }}
+                            className="p-1 text-stone-400 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer rounded"
+                            title="Remove item from menu memory"
+                            aria-label={`Remove ${m.name}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -810,9 +882,31 @@ export default function VenueSheet(p: Props) {
                             year: "numeric",
                           })}
                         </span>
-                        <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded font-bold text-[11px] tabular-nums">
-                          <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                          <span>{v.rating}</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded font-bold text-[11px] tabular-nums">
+                            <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                            <span>{v.rating}</span>
+                          </div>
+                          {spot && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (window.confirm("Delete this visit entry? The spot rating will automatically recalculate.")) {
+                                  try {
+                                    await deleteVisitLog(spot.id, v.id);
+                                    showToast("Visit deleted", "info");
+                                  } catch {
+                                    showToast("Failed to delete visit", "error");
+                                  }
+                                }
+                              }}
+                              className="p-1 text-stone-400 hover:text-red-600 dark:hover:text-red-400 transition-colors rounded cursor-pointer"
+                              title="Delete this visit"
+                              aria-label="Delete visit"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </div>
 

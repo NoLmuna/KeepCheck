@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/lib/auth";
 import { ToastProvider } from "@/lib/toast";
+import { PwaInstallProvider } from "@/components/PwaInstallPrompt";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -95,7 +96,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <ToastProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <PwaInstallProvider>{children}</PwaInstallProvider>
+          </AuthProvider>
         </ToastProvider>
       </body>
     </html>

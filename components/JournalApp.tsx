@@ -40,7 +40,9 @@ import JournalFilters, { StatusTabs, CategoryPills } from "./JournalFilters";
 import SpotCard from "./SpotCard";
 import LogSpotModal from "./LogSpotModal";
 import ThemeToggle from "./ThemeToggle";
-import type { Spot } from "@/lib/models";
+import { usePwaInstall } from "./PwaInstallPrompt";
+import { useToast } from "@/lib/toast";
+import type { Spot, SpotLocation } from "@/lib/models";
 import { GoogleIcon } from "./LandingPage";
 
 const JournalTools = dynamic(() => import("./JournalTools"), { ssr: false });
@@ -57,8 +59,33 @@ const SpotsMap = dynamic(() => import("./SpotsMap"), {
 
 export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" | "split" }) {
   const { user, cachedSession, isGuest, signInWithGoogle, signOut } = useAuth();
+  const currentUser = user ?? cachedSession;
   const uid = user?.uid ?? cachedSession?.uid;
+  const { isInstalled, promptInstall } = usePwaInstall();
+  const { showToast } = useToast();
   const context = useMapContext();
+
+  const [adjustingSpot, setAdjustingSpot] = useState<Spot | null>(null);
+  const [externalMapSearch, setExternalMapSearch] = useState<string | null>(null);
+
+  const handleConfirmAdjustPin = useCallback(
+    async (spot: Spot, location: SpotLocation) => {
+      const now = Math.max(Date.now(), spot.updatedAt + 1);
+      await db.venues.update(spot.id, {
+        location,
+        locationMissing: false,
+        updatedAt: now,
+        syncStatus: "pending",
+      });
+      const updated = await db.venues.get(spot.id);
+      if (updated) {
+        setSelected(journalVenue(updated));
+      }
+      setAdjustingSpot(null);
+      showToast(`Pin updated for ${spot.name}`, "success");
+    },
+    [showToast],
+  );
 
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [selected, setSelected] = useState<Venue | null>(null);
@@ -162,7 +189,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
     [pendingRecords, pendingPhotos],
   );
 
-  const syncError = useJournalSync(user?.uid, revision);
+  const syncError = useJournalSync(uid, revision);
 
   const pending = useMemo(() => {
     const deletedVisits = new Set(
@@ -415,7 +442,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
 
           {/* User Profile Avatar & Dropdown */}
           <div ref={userMenuRef} className="relative">
-            {user ? (
+            {currentUser ? (
               <button
                 type="button"
                 onClick={() => setUserMenuOpen((v) => !v)}
@@ -423,16 +450,16 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                 aria-expanded={userMenuOpen}
                 className="flex items-center gap-1.5 p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 border border-transparent hover:border-stone-200 dark:hover:border-stone-700 transition-colors cursor-pointer"
               >
-                {user.photoURL ? (
+                {currentUser.photoURL ? (
                   <img
-                    src={user.photoURL}
+                    src={currentUser.photoURL}
                     alt=""
                     className="w-7 h-7 rounded-full object-cover ring-1 ring-amber-400"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
                   <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-900 font-bold text-xs flex items-center justify-center">
-                    {(user.displayName?.[0] ?? user.email?.[0] ?? "U").toUpperCase()}
+                    {(currentUser.displayName?.[0] ?? currentUser.email?.[0] ?? "U").toUpperCase()}
                   </div>
                 )}
                 <ChevronDown className="w-3.5 h-3.5 text-stone-400" />
@@ -469,27 +496,33 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
             )}
 
             {/* Profile Dropdown Menu */}
-            {userMenuOpen && user && (
+            {userMenuOpen && currentUser && (
               <div className="absolute right-0 top-full mt-2 z-50 w-64 bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl p-2.5 space-y-2 text-xs text-stone-900 dark:text-stone-100 animate-modal-enter">
                 {/* User Info Header */}
                 <div className="p-2.5 bg-[#FAF7F2] dark:bg-stone-800/60 rounded-xl flex items-center gap-2.5 border border-stone-200/60 dark:border-stone-700">
-                  {user.photoURL ? (
+                  {currentUser.photoURL ? (
                     <img
-                      src={user.photoURL}
+                      src={currentUser.photoURL}
                       alt=""
                       className="w-9 h-9 rounded-full object-cover ring-1 ring-amber-400"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-900 font-bold text-sm flex items-center justify-center">
-                      {(user.displayName?.[0] ?? user.email?.[0] ?? "U").toUpperCase()}
+                      {(currentUser.displayName?.[0] ?? currentUser.email?.[0] ?? "U").toUpperCase()}
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-stone-900 dark:text-stone-100 truncate">
-                      {user.displayName ?? "Signed-in User"}
+                      {currentUser.displayName ?? "Signed-in User"}
                     </p>
-                    <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate">{user.email}</p>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate">{currentUser.email}</p>
+                    {!user && cachedSession && (
+                      <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold flex items-center gap-1 mt-0.5">
+                        <WifiOff className="w-2.5 h-2.5" />
+                        <span>Offline session</span>
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -527,6 +560,21 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                   <Folder className="w-4 h-4 text-stone-500 dark:text-stone-400" />
                   <span>My Lists & Stats</span>
                 </button>
+
+                {/* Menu Action 3: Install App */}
+                {!isInstalled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      void promptInstall();
+                    }}
+                    className="w-full px-2.5 py-2 text-left font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-lg flex items-center gap-2 cursor-pointer transition-colors"
+                  >
+                    <Download className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                    <span>Install App</span>
+                  </button>
+                )}
 
                 {/* Sign Out Action */}
                 <div className="pt-1 border-t border-stone-100 dark:border-stone-800">
@@ -572,6 +620,11 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                   setInitialAction(undefined);
                 }}
                 onSave={save}
+                onAdjustPin={(spot) => {
+                  setAdjustingSpot(spot);
+                  setSelected(null);
+                  setMobileTab("map");
+                }}
               />
             </div>
           ) : (
@@ -671,7 +724,29 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                       <Sparkles className="w-6 h-6 text-amber-700 dark:text-amber-400" />
                     </div>
 
-                    {spots.length === 0 ? (
+                    {searchQuery.trim().length > 0 ? (
+                      <>
+                        <h3 className="font-serif font-bold text-stone-900 dark:text-stone-100 text-sm">
+                          No saved spots matching &ldquo;{searchQuery.trim()}&rdquo;
+                        </h3>
+                        <p className="text-xs text-stone-500 dark:text-stone-400 max-w-xs mx-auto leading-relaxed">
+                          Search OpenStreetMap for places matching this name or address.
+                        </p>
+                        <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExternalMapSearch(searchQuery.trim());
+                              setMobileTab("map");
+                            }}
+                            className="w-full sm:w-auto px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                          >
+                            <Search className="w-3.5 h-3.5" />
+                            <span>Search &ldquo;{searchQuery.trim()}&rdquo; on map →</span>
+                          </button>
+                        </div>
+                      </>
+                    ) : spots.length === 0 ? (
                       <>
                         <h3 className="font-serif font-bold text-stone-900 dark:text-stone-100 text-base">
                           Your food & coffee map is ready!
@@ -752,6 +827,11 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
             pending={pending}
             externalSelection={selected}
             onSelection={handleVenueSelection}
+            adjustingSpot={adjustingSpot}
+            onCancelAdjustPin={() => setAdjustingSpot(null)}
+            onConfirmAdjustPin={handleConfirmAdjustPin}
+            externalSearchQuery={externalMapSearch}
+            onClearExternalSearch={() => setExternalMapSearch(null)}
           />
         </div>
       </div>
