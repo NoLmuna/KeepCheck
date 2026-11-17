@@ -1,71 +1,147 @@
 # KeepCheck
 
-An offline-first PWA for logging and rating food and drink spots. Built with Next.js, Dexie.js, and Tailwind CSS. Your data stays on your device—no cloud, no accounts, fully private.
+A Progressive Web App for logging and rating food and drink spots. Built offline-first with local IndexedDB storage and optional real-time cloud sync via Firebase. Works on desktop and mobile, with or without an internet connection.
 
+## Features
 
-## Project Structure
-
-    keepcheck/
-        app/            - Main UI, search/sort logic, components
-        public/         - Static assets (logo, icons)
-        manifest.ts     - PWA configuration
-        sw.js           - Service worker for offline mode
-        package.json    - Dependencies and scripts
-
-
-## Requirements
-
-- Node.js (v18 or later recommended)
-- A modern web browser (Chrome, Edge, Safari, etc.)
-- npm, yarn, pnpm, or bun
-
-
-## Setup Guide for New Cloners
-
-### Step 1 - Clone or Download
-
-    git clone https://github.com/yourusername/keepcheck.git
-    cd keepcheck
-
-
-### Step 2 - Install Dependencies
-
-Run this in your terminal:
-
-    npm install
-
-
-### Step 3 - Start Development
-
-    npm run dev
-
-Open http://localhost:3000 in your browser.
-
-
-## Running KeepCheck
-
-Just open the app in your browser. Since it is a PWA, you can "Install" it via your browser menu to use it as a standalone app on your desktop or phone home screen.
-
-
-## How It Works
-
-    1. Your data is managed by Dexie.js (IndexedDB wrapper) stored locally in your browser.
-    2. Next.js App Router handles the UI state reactively using useLiveQuery.
-    3. Tailwind CSS handles the theme toggling via class-based dark mode.
-    4. Service Worker (sw.js) caches the app shell for offline reliability.
-
+- **Offline-First Storage** — All data is written instantly to IndexedDB (via Dexie.js) so the app works without a network. A service worker caches the app shell for full offline reliability.
+- **Cloud Sync** — Sign in with Google to sync spots and images across devices in real-time through Firestore. Offline edits queue automatically and sync when connectivity returns.
+- **Interactive Maps** — View logged spots on a Leaflet/OpenStreetMap view. Pick a location by tapping the map or use device GPS to auto-detect coordinates.
+- **Image Support** — Attach photos to spots. Images are compressed locally for thumbnails and cached in IndexedDB at full resolution.
+- **Search, Filter, and Sort** — Text search with debounce, category filters (Cafe, Restaurant), sort by date or rating, and toggle between list and grid views.
+- **Toast Notifications** — All user actions (logging, deleting, signing in/out, syncing, errors) surface as brief toast notifications instead of alerts or silent failures.
+- **PWA Installable** — Can be installed to the home screen on mobile or as a desktop app through the browser.
 
 ## Tech Stack
 
-    Next.js         - React framework for the App Router
-    Dexie.js        - Local IndexedDB storage for offline-first data
-    Tailwind CSS    - Utility-first styling
-    Lucide React    - Clean, consistent iconography
-    Vercel          - Deployment platform
+| Technology | Role |
+| --- | --- |
+| Next.js 16 (App Router) | Framework and routing |
+| Dexie.js | IndexedDB wrapper for local storage |
+| Firebase Auth + Firestore | Authentication and cloud database |
+| NextAuth.js v5 | OAuth session management |
+| Tailwind CSS v4 | Styling and theming |
+| GSAP | Animations |
+| Leaflet.js | Map rendering |
+| Serwist | Service worker and PWA support |
 
+## Project Structure
 
-## Roadmap & Future Scope
+```
+app/
+  api/              Server routes (auth callback, token exchange)
+  login/            Sign-in page
+  map/              Full-page map view
+  offline/          Offline fallback page
+  db.ts             IndexedDB schema
+  globals.css       Theme tokens and animations
+  layout.tsx        Root layout (providers)
+  page.tsx          Main application page
 
-- Direct JSON restoration (Import functionality)
-- Advanced categorization (Food Truck, Bakery, Bar, etc.)
-- Data visualization (Charts for your ratings over time)
+components/
+  AuthGuard.tsx           Auth-protected wrapper
+  LocationPickerMap.tsx   Map pin selector
+  LocationPickerModal.tsx Modal for picking a location
+  SpotDetailModal.tsx     Full-res photo viewer
+  SpotsMap.tsx            Map with spot markers
+
+lib/
+  auth.tsx          Auth context (NextAuth + Firebase bridge)
+  firebase.ts       Firebase client setup
+  firestore.ts      Firestore read/write helpers
+  offlineSync.ts    Offline queue and reconnection sync
+  toast.tsx         Global toast notification provider
+
+utils/
+  image.ts          Image compression and resizing
+```
+
+## Setup
+
+### Prerequisites
+
+- Node.js 18 or later
+- npm (or yarn / pnpm / bun)
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/yourusername/keepcheck.git
+cd keepcheck
+npm install
+```
+
+### 2. Configure environment
+
+Create a `.env.local` file in the project root:
+
+```env
+# NextAuth
+AUTH_SECRET=
+AUTH_GOOGLE_ID=
+AUTH_GOOGLE_SECRET=
+
+# Firebase (client)
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+
+# Firebase Admin (server-side token exchange)
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+```
+
+### 3. Run
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## How It Works
+
+1. When you log a spot, the data is written to IndexedDB immediately. If you are signed in and online, it also writes to Firestore in the background.
+2. If you are offline, spots are flagged as pending. When the app detects connectivity, it runs a sync sweep to push pending records to Firestore.
+3. Firestore snapshot listeners keep your local database in sync with cloud changes from other devices.
+4. New visit photos are compressed to WebP in IndexedDB and queued for Firebase Storage. After upload, a small local preview is retained. Legacy base64 images are migrated from Firestore on the first normalized sync.
+
+## License
+
+MIT
+
+## Venue discovery map
+
+Open `/map` to search by venue name, tap nearby food venues (zoom 15+), or drop a pin. GPS enables proximity sorting and route previews. Guests can save and edit locally without signing in. Venue addresses and OSM identifiers are stored in IndexedDB; legacy records migrate into venues and individual visit logs. Original numeric-key records and images remain untouched as an archive; the new journal uses a 1–5 rating scale (legacy ratings are divided by two and clamped to 1–5).
+
+Photon powers search, Nominatim resolves manual pins, and Overpass supplies nearby venues (including `shop=bakery`). Driving previews use the OSRM demo; walking previews use FOSSGIS's separately prepared public OSRM pedestrian graph at `routing.openstreetmap.de/routed-foot`. Changing the profile token on a driving graph does not produce a pedestrian route. All requests have cancellation, timeouts, and offline/error fallbacks. Reverse lookup and route requests are rate-limited; viewport discovery is debounced and cached in memory.
+
+Saved places, editing, coordinate pinning, straight-line distances, and previously cached map tiles work offline after loading the PWA online. New search results, new tiles, discovery, and route calculation require connectivity. Guest records remain local; account-owned records synchronize in the background with timestamp-based conflict resolution and deletion tombstones.
+
+Validation:
+
+```sh
+npm run test:map
+npm run test:journal
+npx tsc --noEmit
+npm run build
+```
+
+The map regression suite covers the v6-to-v7 migration, location metadata round trips, offline/non-200 fallbacks, POI deduplication/cache, routing endpoint selection, and sync races. Browser checks should also cover GPS denial, search/POI selection, route dismissal, guest edits, and offline reloads against a production build (`npm run start`); service workers are disabled in development.
+
+## Dining journal and cloud setup
+
+The existing `/` route is the journal; `/map` is discovery. Both support guests and use Dexie as the source of truth. Version 8 adds `venues` (normalized Spot records), `visitLogs`, `collections`, `photoQueue`, and sync checkpoints while retaining the old `spots` and `images` stores unchanged. Repeated legacy entries are grouped only by OSM ID or matching name within 50 m; all visits and original photos remain available. Unlocated records remain in the journal without false map pins.
+
+Save a venue to Wishlist without a rating, then use Mark as Visited to create its first visit. Log Visit appends to its history; Edit venue manages vibe tags, budget, menu notes and collections. Filters and Pick For Me work locally. Tools contains local insights, collection management, PNG share cards, JSON backup/restore and CSV export. JSON embeds pending originals and local previews, plus URLs for uploaded originals; restore validates the complete file before a transactional, timestamp-based merge. Guest records stay local until explicitly assigned to a signed-in account in Tools → Data.
+
+Authenticated sync uses `users/{uid}/venues`, `visitLogs`, and `collections`; it imports old `spots` and `images` once, subscribes from a per-table checkpoint, pushes pending records with Firestore transactions, and retains deletion tombstones. Photos use `users/{uid}/journal/{photoId}` in Firebase Storage. Set `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` along with the existing Firebase environment variables, enable Storage in the Firebase project, and review/deploy `storage.rules` and `firestore.rules` alongside your existing production policies. These rule files are supplied for deployment; this change does not deploy rules or enable cloud services. Failed uploads remain local and retry on reconnect or the background sweep.
+
+PWA shortcuts open Quick Log Spot and Nearby Wishlist. Test offline behavior with a production build: development disables the service worker. Previously loaded app routes, local photos, filters, visits, saved addresses, and backup export work offline; new OSM results and uncached map tiles require connectivity.
+
+Shortcut and venue links use URL fragments so their launch state survives offline app-shell navigation without requiring a server query response.
+
+Map performance: discovery is debounced by 600 ms at zoom 15+, bounded to a 2 km radius around the viewport center, and displays at most 40 nearest unsaved POIs. Marker and GPS layers are reused; distance-dependent React state updates after 15 m of movement or 2 seconds. Desktop search/list/details share a 380–400 px panel; mobile details use a transform-only peek/expanded drawer. Use `/` or Ctrl/Cmd+K to search, arrow keys and Enter to select, and Escape to dismiss. Filters and Pick For Me live behind the Filters button; connection/GPS/sync details are in the corner status control.

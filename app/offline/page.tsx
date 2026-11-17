@@ -52,7 +52,7 @@ export default function OfflinePage() {
 
       {/* Branding */}
       <p className="mt-12 text-xs font-serif text-text-secondary/60">
-        Keep<span className="text-accent font-bold">Check</span>
+        Keep<span className="text-category-cafe font-bold">Check</span>
       </p>
     </div>
   );

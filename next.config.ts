@@ -12,11 +12,13 @@ const withSerwist = withSerwistInit({
   additionalPrecacheEntries: [
     { url: "/", revision },
     { url: "/offline", revision },
+    { url: "/map", revision },
   ],
 });
 
 const nextConfig: NextConfig = {
   /* config options here */
+  serverExternalPackages: ["firebase-admin", "google-auth-library", "gaxios", "gcp-metadata", "jose", "jwks-rsa"],
 };
 
 export default withSerwist(nextConfig);

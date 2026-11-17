@@ -1,0 +1,14 @@
+// Review/deploy alongside the project's existing Firestore rules.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{kind}/{id} {
+      allow read: if request.auth != null && request.auth.uid == uid
+        && kind in ['venues', 'visitLogs', 'collections', 'spots', 'images'];
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && kind in ['venues', 'visitLogs', 'collections']
+        && request.resource.data.userId == uid
+        && request.resource.data.updatedAt is number;
+    }
+  }
+}

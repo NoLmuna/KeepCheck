@@ -1,24 +1,8 @@
 import type { Metadata } from "next";
-import { Fraunces, Work_Sans, Space_Mono } from "next/font/google";
+import { AuthProvider } from "@/lib/auth";
+import { ToastProvider } from "@/lib/toast";
+import { PwaInstallProvider } from "@/components/PwaInstallPrompt";
 import "./globals.css";
-
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
-  subsets: ["latin"],
-  weight: ["600"],
-});
-
-const workSans = Work_Sans({
-  variable: "--font-work-sans",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
-
-const spaceMono = Space_Mono({
-  variable: "--font-space-mono",
-  subsets: ["latin"],
-  weight: ["400", "700"],
-});
 
 export const metadata: Metadata = {
   title: "KeepCheck",
@@ -38,17 +22,22 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${workSans.variable} ${spaceMono.variable} h-full antialiased`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
       <head>
+        {/* Google Fonts Link: Fraunces (Headings) + Plus Jakarta Sans (UI & Body) */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Plus+Jakarta+Sans:ital,wght@0,400..800;1,400..800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
+
         {/* Theme persistence helper to avoid flash of light/dark mode */}
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
   try {
     var stored = localStorage.getItem("keepcheck-theme");
-    var isDark = stored ? stored === "dark" : true;
+    var isDark = stored === "dark";
     if (isDark) {
       document.documentElement.classList.add("dark");
     } else {
@@ -105,7 +94,13 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        <ToastProvider>
+          <AuthProvider>
+            <PwaInstallProvider>{children}</PwaInstallProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </body>
     </html>
   );
 }

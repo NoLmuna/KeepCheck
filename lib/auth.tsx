@@ -1,0 +1,528 @@
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  signInWithCustomToken,
+  getRedirectResult,
+  onAuthStateChanged,
+  signOut as firebaseSignOut,
+  type User,
+} from "firebase/auth";
+import {
+  signIn as nextAuthSignIn,
+  signOut as nextAuthSignOut,
+  useSession,
+  SessionProvider,
+} from "next-auth/react";
+import { getFirebaseAuth } from "./firebase";
+import { useToast } from "./toast";
+import { associateLocalRecordsWithUser } from "./journalSync";
+import type { AuthActionState } from "@/components/AuthTransitionOverlay";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+export interface QuickLoginAccount {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+  lastLoginAt: number;
+}
+
+/** Lightweight cached session stored in localStorage for instant offline access. */
+export interface CachedSession {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+}
+
+interface AuthContextValue {
+  user: User | null;
+  loading: boolean;
+  authResolved: boolean;
+  authAction: AuthActionState;
+  setAuthAction: (action: AuthActionState) => void;
+  isGuest: boolean;
+  continueAsGuest: () => void;
+  exitGuestMode: () => void;
+  signInWithGoogle: (email?: string) => Promise<User | void>;
+  signOut: () => Promise<void>;
+  quickLoginAccounts: QuickLoginAccount[];
+  /** Cached session from localStorage — available instantly, even offline. */
+  cachedSession: CachedSession | null;
+}
+
+const QUICK_LOGIN_KEY = "keepcheck-quick-login";
+const SESSION_CACHE_KEY = "keepcheck-session";
+const GUEST_MODE_KEY = "keepcheck-guest-mode";
+const SIGNED_OUT_KEY = "keepcheck-signed-out";
+const MAX_QUICK_LOGIN = 5;
+
+/* ------------------------------------------------------------------ */
+/*  Session cache helpers                                              */
+/* ------------------------------------------------------------------ */
+
+function loadCachedSession(): CachedSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.uid === "string") return parsed as CachedSession;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedSession(user: User): void {
+  if (typeof window === "undefined") return;
+  try {
+    const session: CachedSession = {
+      uid: user.uid,
+      displayName: user.displayName,
+      email: user.email,
+      photoURL: user.photoURL,
+    };
+    localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(session));
+  } catch {
+    /* storage full — best effort */
+  }
+}
+
+function clearCachedSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(SESSION_CACHE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Context                                                            */
+/* ------------------------------------------------------------------ */
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+/* ------------------------------------------------------------------ */
+/*  Provider (outer shell wrapping SessionProvider)                    */
+/* ------------------------------------------------------------------ */
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  return (
+    <SessionProvider>
+      <AuthProviderInner>{children}</AuthProviderInner>
+    </SessionProvider>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Provider (inner with access to NextAuth + Firebase)                */
+/* ------------------------------------------------------------------ */
+
+function AuthProviderInner({ children }: { children: ReactNode }) {
+  const { data: nextAuthSession, status: nextAuthStatus } = useSession();
+  const { showToast } = useToast();
+
+  const [user, setUser] = useState<User | null>(null);
+  const [firebaseLoading, setFirebaseLoading] = useState(true);
+  const [authAction, setAuthAction] = useState<AuthActionState>(null);
+  const [isGuest, setIsGuest] = useState(false);
+  const [quickLoginAccounts, setQuickLoginAccounts] = useState<QuickLoginAccount[]>([]);
+  const [cachedSession, setCachedSession] = useState<CachedSession | null>(null);
+
+  // Guard to prevent repeating welcome toast and token bridge loops
+  const prevUserRef = useRef<User | null>(null);
+  const tokenBridgeInFlight = useRef(false);
+  const tokenBridgeAbortController = useRef<AbortController | null>(null);
+  const isSignedOutRef = useRef(false);
+
+  // Load cached session + guest mode + quick-login history from localStorage on mount.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SIGNED_OUT_KEY) === "true") {
+        isSignedOutRef.current = true;
+      }
+    } catch {}
+
+    try {
+      const storedGuest = localStorage.getItem(GUEST_MODE_KEY);
+      if (storedGuest === "true") {
+        setIsGuest(true);
+      }
+    } catch {}
+
+    const cached = loadCachedSession();
+    if (cached && !isSignedOutRef.current) {
+      setCachedSession(cached);
+    }
+
+    try {
+      const stored = localStorage.getItem(QUICK_LOGIN_KEY);
+      if (stored) setQuickLoginAccounts(JSON.parse(stored));
+    } catch {}
+  }, []);
+
+  const saveToQuickLogin = useCallback((u: User) => {
+    setQuickLoginAccounts((prev: QuickLoginAccount[]) => {
+      const filtered = prev.filter((a: QuickLoginAccount) => a.uid !== u.uid);
+      const entry: QuickLoginAccount = {
+        uid: u.uid,
+        displayName: u.displayName,
+        email: u.email,
+        photoURL: u.photoURL,
+        lastLoginAt: Date.now(),
+      };
+      const updated = [entry, ...filtered].slice(0, MAX_QUICK_LOGIN);
+
+      try {
+        localStorage.setItem(QUICK_LOGIN_KEY, JSON.stringify(updated));
+      } catch {}
+
+      return updated;
+    });
+  }, []);
+
+  // Listen to Firebase auth state & handle redirect result
+  useEffect(() => {
+    let isMounted = true;
+    const auth = getFirebaseAuth();
+
+    // Check for pending redirect sign-in result (mobile / PWA fallback)
+    getRedirectResult(auth)
+      .then((result) => {
+        if (!isMounted) return;
+        if (result?.user) {
+          setIsGuest(false);
+          try {
+            localStorage.removeItem(GUEST_MODE_KEY);
+            localStorage.removeItem(SIGNED_OUT_KEY);
+          } catch {}
+          isSignedOutRef.current = false;
+        }
+      })
+      .catch((err: unknown) => {
+        const authErr = err as { code?: string; message?: string };
+        if (authErr?.code && authErr.code !== "auth/popup-closed-by-user") {
+          console.warn("[KeepCheck Auth] Redirect result error:", err);
+        }
+      });
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!isMounted) return;
+
+      if (firebaseUser) {
+        // If user explicitly signed out, do not resurrect session
+        if (
+          isSignedOutRef.current ||
+          (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true")
+        ) {
+          void firebaseSignOut(auth);
+          setUser(null);
+          setFirebaseLoading(false);
+          return;
+        }
+
+        if (!prevUserRef.current) {
+          const name = firebaseUser.displayName ?? firebaseUser.email ?? "friend";
+          setTimeout(() => {
+            showToast(`Welcome back, ${name}!`, "success");
+          }, 250);
+        }
+        prevUserRef.current = firebaseUser;
+
+        setUser(firebaseUser);
+        setIsGuest(false);
+        try {
+          localStorage.removeItem(GUEST_MODE_KEY);
+          localStorage.removeItem(SIGNED_OUT_KEY);
+        } catch {}
+        isSignedOutRef.current = false;
+
+        saveToQuickLogin(firebaseUser);
+        saveCachedSession(firebaseUser);
+        setCachedSession({
+          uid: firebaseUser.uid,
+          displayName: firebaseUser.displayName,
+          email: firebaseUser.email,
+          photoURL: firebaseUser.photoURL,
+        });
+
+        // Dismiss auth action now that session is active
+        setAuthAction(null);
+
+        // Automatically associate guest/local records with user.uid
+        try {
+          const claimedCount = await associateLocalRecordsWithUser(firebaseUser.uid);
+          if (claimedCount > 0) {
+            showToast("Your saved spots are now synced to your Google account", "success");
+          }
+        } catch (e) {
+          console.error("[KeepCheck Auth] Failed to associate local records:", e);
+        }
+      } else {
+        setUser(null);
+        setAuthAction(null);
+      }
+      setFirebaseLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [saveToQuickLogin, showToast]);
+
+  // ---- NextAuth (Vercel OAuth) → Firebase Token Bridge ----
+  // When NextAuth session resolves, exchange it via /api/firebase-token for a Firebase custom token.
+  useEffect(() => {
+    const isExplicitlySignedOut =
+      isSignedOutRef.current ||
+      (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true");
+
+    if (
+      isExplicitlySignedOut ||
+      nextAuthStatus !== "authenticated" ||
+      !nextAuthSession?.user?.email ||
+      user !== null ||
+      tokenBridgeInFlight.current
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    tokenBridgeAbortController.current = controller;
+    tokenBridgeInFlight.current = true;
+    setAuthAction("signing-in");
+
+    (async () => {
+      try {
+        const res = await fetch("/api/firebase-token", {
+          method: "POST",
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`Token bridge failed (${res.status}): ${body}`);
+        }
+
+        const { customToken } = await res.json();
+
+        // Abort if sign-out occurred while fetching token
+        if (
+          isSignedOutRef.current ||
+          (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true")
+        ) {
+          tokenBridgeInFlight.current = false;
+          setAuthAction(null);
+          return;
+        }
+
+        await signInWithCustomToken(getFirebaseAuth(), customToken);
+
+        // Abort if sign-out occurred while signing in with custom token
+        if (
+          isSignedOutRef.current ||
+          (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true")
+        ) {
+          await firebaseSignOut(getFirebaseAuth());
+          tokenBridgeInFlight.current = false;
+          setAuthAction(null);
+          return;
+        }
+
+        setIsGuest(false);
+        try {
+          localStorage.removeItem(GUEST_MODE_KEY);
+          localStorage.removeItem(SIGNED_OUT_KEY);
+        } catch {}
+        isSignedOutRef.current = false;
+        tokenBridgeInFlight.current = false;
+      } catch (err: unknown) {
+        if ((err as { name?: string })?.name === "AbortError") {
+          tokenBridgeInFlight.current = false;
+          return;
+        }
+        console.warn("[KeepCheck] Firebase token bridge error (falling back to client auth):", err);
+        tokenBridgeInFlight.current = false;
+        setAuthAction(null);
+      }
+    })();
+  }, [nextAuthStatus, nextAuthSession, user]);
+
+  // Unified Google Sign In:
+  // 1. Tries NextAuth signIn (standard for Vercel with AUTH_GOOGLE_ID & AUTH_SECRET).
+  // 2. Falls back cleanly to Firebase client signInWithPopup / signInWithRedirect.
+  const signInWithGoogle = useCallback(async (emailHint?: string): Promise<User | void> => {
+    if (tokenBridgeAbortController.current) {
+      tokenBridgeAbortController.current.abort();
+      tokenBridgeAbortController.current = null;
+    }
+    tokenBridgeInFlight.current = false;
+    isSignedOutRef.current = false;
+    setIsGuest(false);
+    setAuthAction("signing-in");
+    try {
+      localStorage.removeItem(GUEST_MODE_KEY);
+      localStorage.removeItem(SIGNED_OUT_KEY);
+    } catch {}
+
+    // First attempt NextAuth OAuth (used on Vercel)
+    try {
+      await nextAuthSignIn("google", { callbackUrl: "/", redirectTo: "/" }, emailHint ? { login_hint: emailHint } : undefined);
+      return;
+    } catch (nextAuthErr) {
+      console.warn("[KeepCheck Auth] NextAuth sign-in attempt finished or failed, trying Firebase client auth:", nextAuthErr);
+    }
+
+    // Direct Firebase client fallback
+    try {
+      const auth = getFirebaseAuth();
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({
+        prompt: "select_account",
+        ...(emailHint ? { login_hint: emailHint } : {}),
+      });
+
+      const result = await signInWithPopup(auth, provider);
+      return result.user;
+    } catch (err: unknown) {
+      setAuthAction(null);
+      const authErr = err as { code?: string; message?: string };
+      if (
+        authErr.code === "auth/popup-blocked" ||
+        authErr.code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        setAuthAction("signing-in");
+        const auth = getFirebaseAuth();
+        const provider = new GoogleAuthProvider();
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      if (authErr.code === "auth/popup-closed-by-user") {
+        throw new Error("Sign-in cancelled.");
+      }
+      if (authErr.code === "auth/cancelled-popup-request") {
+        return;
+      }
+      throw new Error(authErr.message || "Sign-in failed. Please try again.");
+    }
+  }, []);
+
+  // Instant, clean sign out of both NextAuth and Firebase
+  const signOut = useCallback(async () => {
+    // 1. Immediately abort any in-flight token bridge
+    if (tokenBridgeAbortController.current) {
+      tokenBridgeAbortController.current.abort();
+      tokenBridgeAbortController.current = null;
+    }
+    tokenBridgeInFlight.current = false;
+
+    // 2. Set permanent synchronous sign-out lock so background events cannot resurrect session
+    isSignedOutRef.current = true;
+    try {
+      localStorage.setItem(SIGNED_OUT_KEY, "true");
+      localStorage.removeItem(GUEST_MODE_KEY);
+    } catch {}
+
+    // 3. Clear all session and cached user state synchronously
+    clearCachedSession();
+    setCachedSession(null);
+    setUser(null);
+    setIsGuest(false);
+    prevUserRef.current = null;
+    setAuthAction(null);
+
+    // 4. Concurrently sign out of both NextAuth and Firebase
+    try {
+      const auth = getFirebaseAuth();
+      await Promise.allSettled([
+        nextAuthSignOut({ redirect: false }),
+        firebaseSignOut(auth),
+      ]);
+    } catch (error) {
+      console.error("[KeepCheck Auth] Error during sign-out:", error);
+    }
+
+    showToast("Signed out successfully", "info");
+  }, [showToast]);
+
+  const continueAsGuest = useCallback(() => {
+    isSignedOutRef.current = false;
+    try {
+      localStorage.removeItem(SIGNED_OUT_KEY);
+      localStorage.setItem(GUEST_MODE_KEY, "true");
+    } catch {}
+    setIsGuest(true);
+  }, []);
+
+  const exitGuestMode = useCallback(() => {
+    setIsGuest(false);
+    try {
+      localStorage.removeItem(GUEST_MODE_KEY);
+    } catch {}
+  }, []);
+
+  // Compute true ground-truth resolution:
+  // Never resolve prematurely while NextAuth session is loading or while token bridge is bridging!
+  const isExplicitlySignedOut =
+    isSignedOutRef.current ||
+    (typeof window !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "true");
+
+  const isBridgeActive =
+    nextAuthStatus === "authenticated" && !isExplicitlySignedOut && user === null;
+
+  const authResolved =
+    !!user ||
+    !!cachedSession ||
+    isGuest ||
+    (!firebaseLoading && nextAuthStatus !== "loading" && !isBridgeActive && !tokenBridgeInFlight.current);
+
+  const loading = !authResolved;
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        authResolved,
+        authAction,
+        setAuthAction,
+        isGuest,
+        continueAsGuest,
+        exitGuestMode,
+        signInWithGoogle,
+        signOut,
+        quickLoginAccounts,
+        cachedSession,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Hook                                                               */
+/* ------------------------------------------------------------------ */
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within <AuthProvider>");
+  return ctx;
+}

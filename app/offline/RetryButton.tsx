@@ -5,7 +5,7 @@ export default function RetryButton() {
     <button
       type="button"
       onClick={() => window.location.reload()}
-      className="mt-8 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-95 cursor-pointer min-h-[44px]"
+      className="mt-8 rounded-xl bg-gold px-6 py-3 text-sm font-bold text-[#4E342E] transition-all hover:bg-gold/90 active:scale-95 cursor-pointer min-h-[44px] shadow-neu-button"
     >
       Try Again
     </button>
