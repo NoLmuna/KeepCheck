@@ -13,6 +13,7 @@ export interface Venue {
   spot?: FoodSpotLog;
   record?: import("./models").Spot;
   openingHours?: string;
+  distance?: number;
 }
 export function coordinateLabel(p: Coordinates): string {
   return `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;

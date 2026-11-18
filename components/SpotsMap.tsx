@@ -39,6 +39,9 @@ import {
   fetchRoute,
   lookupClickLocation,
   searchVenues,
+  searchPhoton,
+  searchLocalOverpassByName,
+  rankAndDeduplicateSearchResults,
   getOpeningHoursStatus,
   reverseLocation,
   type Route,
@@ -356,7 +359,7 @@ export default function SpotsMap({
     };
   }, [mapSearchOpen, nearbyDrawerOpen]);
 
-  // Photon Autocomplete Search with Proximity Bias to Map Center
+  // Combined 3-Layer Search & Distance Ranking (Saved -> Local Overpass + Photon)
   useEffect(() => {
     searchAbortRef.current?.abort();
     if (mapSearchQuery.trim().length < 2) {
@@ -370,7 +373,7 @@ export default function SpotsMap({
     setIsSearchingPhoton(true);
     setMapSearchOpen(true);
 
-    // Local saved matches first
+    // 1. Filter matching Saved Journal Spots first
     const qLower = mapSearchQuery.trim().toLowerCase();
     const localMatched = saved.filter(
       (v) =>
@@ -378,30 +381,74 @@ export default function SpotsMap({
         v.location.formattedAddress?.toLowerCase().includes(qLower) ||
         v.location.locality?.toLowerCase().includes(qLower),
     );
-    setMapSearchResults(localMatched);
+
+    const map = mapRef.current;
+    const centerPoint = map?.getCenter() ?? rawPosition.current;
+    const centerCoords = centerPoint
+      ? { lat: centerPoint.lat, lng: centerPoint.lng }
+      : { lat: 14.5995, lng: 120.9842 };
+
+    // Immediately display saved matches with distance while network queries run
+    const initialSaved = localMatched.map((v) => ({
+      ...v,
+      distance: haversine(centerCoords, v.location),
+    }));
+    setMapSearchResults(initialSaved);
 
     const timer = setTimeout(async () => {
       try {
-        const center = mapRef.current?.getCenter() ?? rawPosition.current;
-        const centerCoords = center ? { lat: center.lat, lng: center.lng } : null;
-        const found = await searchVenues(
-          mapSearchQuery.trim(),
-          centerCoords,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        if (found) {
-          const savedOsmIds = new Set(
-            localMatched.map((s) => s.location.osmId).filter(Boolean),
-          );
-          const combined = [
-            ...localMatched,
-            ...found.filter(
-              (f) => !f.location.osmId || !savedOsmIds.has(f.location.osmId),
-            ),
-          ];
-          setMapSearchResults(combined);
+        const query = mapSearchQuery.trim();
+        const activeCenter = mapRef.current?.getCenter() ?? rawPosition.current;
+        const center = activeCenter
+          ? { lat: activeCenter.lat, lng: activeCenter.lng }
+          : centerCoords;
+
+        // Expanded viewport bbox for Photon
+        let bbox: [number, number, number, number] | undefined;
+        let zoom = 14;
+        if (mapRef.current) {
+          zoom = Math.round(mapRef.current.getZoom());
+          const b = mapRef.current.getBounds().pad(0.5);
+          bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
         }
+
+        const photonOptions = {
+          lat: center.lat,
+          lon: center.lng,
+          zoom,
+          bbox,
+          limit: 12,
+        };
+
+        // 2. Run searchLocalOverpassByName and searchPhoton in parallel via Promise.allSettled
+        const [overpassSettled, photonSettled] = await Promise.allSettled([
+          searchLocalOverpassByName(query, center, 12000, controller.signal),
+          searchPhoton(query, photonOptions, controller.signal),
+        ]);
+
+        if (controller.signal.aborted) return;
+
+        const overpassVenues =
+          overpassSettled.status === "fulfilled" && Array.isArray(overpassSettled.value)
+            ? overpassSettled.value
+            : [];
+        const photonVenues =
+          photonSettled.status === "fulfilled" && Array.isArray(photonSettled.value)
+            ? photonSettled.value
+            : [];
+
+        // 3. Deduplicate merged results by proximity (< 40m) and normalized name
+        // 4. Compute Haversine distance and sort: matches within 12km rank strictly ahead of distant cities, closest-first
+        const rankedResults = rankAndDeduplicateSearchResults(
+          localMatched,
+          overpassVenues,
+          photonVenues,
+          center,
+          40,
+          12000,
+        );
+
+        setMapSearchResults(rankedResults);
       } catch {
         // Ignore abort/network errors
       } finally {
@@ -1624,7 +1671,7 @@ export default function SpotsMap({
               <div className="px-3 py-1.5 bg-stone-50/80 dark:bg-stone-900/60 text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
                 Nearby & Saved Places (Tap to Pin)
               </div>
-              {mapSearchResults.slice(0, 6).map((place) => (
+              {mapSearchResults.slice(0, 8).map((place) => (
                 <button
                   key={place.key}
                   type="button"
@@ -1653,8 +1700,19 @@ export default function SpotsMap({
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate">
-                      {place.location.locality || place.location.formattedAddress}
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate flex items-center gap-1.5">
+                      {typeof place.distance === "number" && (
+                        <span className="font-semibold text-stone-700 dark:text-stone-300 shrink-0">
+                          {formatDistance(place.distance)}
+                        </span>
+                      )}
+                      {typeof place.distance === "number" &&
+                        (place.location.locality || place.location.formattedAddress) && (
+                          <span className="text-stone-300 dark:text-stone-600 shrink-0">•</span>
+                        )}
+                      <span className="truncate">
+                        {place.location.locality || place.location.formattedAddress}
+                      </span>
                     </p>
                   </div>
                 </button>

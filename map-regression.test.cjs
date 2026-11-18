@@ -345,3 +345,181 @@ test("opening hours parser safely evaluates OSM time strings and handles invalid
   assert.equal(getOpeningHoursStatus("", tuesdayNoon), null);
   assert.equal(getOpeningHoursStatus("sunrise-sunset", tuesdayNoon), null);
 });
+
+test("local Overpass name search regex, brand matching, and combined 3-layer distance ranking", async () => {
+  setOnline(true);
+  const osm = load("lib/osm.ts");
+  const geo = load("lib/geo.ts");
+
+  // 1. Test buildOverpassRegexPattern
+  assert.equal(osm.buildOverpassRegexPattern("mcdonalds"), "mcdonald['’]?s");
+  assert.equal(osm.buildOverpassRegexPattern("mcdonald's"), "mcdonald['’]?s");
+  assert.equal(osm.buildOverpassRegexPattern("wendys"), "wendy['’]?s");
+  assert.equal(osm.buildOverpassRegexPattern("st. mark"), "st\\. mark");
+  assert.equal(osm.buildOverpassRegexPattern('cafe "special"'), "caf[eé] special");
+
+  const pattern = osm.buildOverpassRegexPattern("mcdonalds");
+  const regex = new RegExp(pattern, "i");
+  assert.ok(regex.test("McDonald's"));
+  assert.ok(regex.test("McDonalds"));
+  assert.ok(regex.test("McDonald’s"));
+
+  // 2. Test searchLocalOverpassByName query construction and normalization
+  let capturedOverpassQuery = "";
+  globalThis.fetch = async (url, init) => {
+    capturedOverpassQuery = init && init.body ? init.body.toString() : "";
+    return response({
+      elements: [
+        {
+          type: "node",
+          id: 101,
+          lat: 14.5995,
+          lon: 120.9842,
+          tags: {
+            name: "McDonald's Taft",
+            brand: "McDonald's",
+            amenity: "fast_food",
+            "addr:street": "Taft Ave",
+            "addr:city": "Manila",
+            opening_hours: "24/7",
+          },
+        },
+        {
+          type: "way",
+          id: 202,
+          center: { lat: 14.5800, lon: 120.9800 },
+          tags: {
+            name: "Starbucks Coffee",
+            shop: "coffee",
+            cuisine: "coffee_shop",
+            "addr:city": "Manila",
+          },
+        },
+      ],
+    });
+  };
+
+  const center = { lat: 14.6000, lng: 120.9800 };
+  const overpassResults = await osm.searchLocalOverpassByName("mcdonalds", center, 12000);
+
+  // Check query contains [timeout:10], around:12000, name pattern, brand pattern
+  assert.match(capturedOverpassQuery, /timeout%3A10/);
+  assert.match(capturedOverpassQuery, /around%3A12000/);
+  assert.match(capturedOverpassQuery, /brand/);
+
+  // Check coffee query adds shop=coffee and cuisine=coffee_shop
+  await osm.searchLocalOverpassByName("cafe central", center, 12000);
+  assert.match(capturedOverpassQuery, /shop%3Dcoffee/);
+  assert.match(capturedOverpassQuery, /cuisine%3Dcoffee_shop/);
+
+  // Check normalized Venue objects
+  assert.equal(overpassResults.length, 2);
+  assert.equal(overpassResults[0].key, "node/101");
+  assert.equal(overpassResults[0].name, "McDonald's Taft");
+  assert.equal(overpassResults[0].category, "restaurant");
+  assert.equal(overpassResults[0].location.locality, "Manila");
+  assert.equal(overpassResults[0].openingHours, "24/7");
+
+  // Way coordinates normalized from center
+  assert.equal(overpassResults[1].key, "way/202");
+  assert.equal(overpassResults[1].location.lat, 14.5800);
+  assert.equal(overpassResults[1].location.lng, 120.9800);
+  assert.equal(overpassResults[1].category, "coffee");
+
+  // 3. Test searchPhoton with options
+  let capturedPhotonUrl = "";
+  globalThis.fetch = async (url) => {
+    capturedPhotonUrl = String(url);
+    return response({
+      features: [
+        {
+          geometry: { coordinates: [120.9842, 14.5995] },
+          properties: {
+            name: "McDonald's",
+            osm_type: "N",
+            osm_id: 101,
+            city: "Manila",
+          },
+        },
+      ],
+    });
+  };
+
+  await osm.searchPhoton("mcdonalds", {
+    lat: 14.6,
+    lon: 121.0,
+    zoom: 15,
+    bbox: [120.9, 14.5, 121.1, 14.7],
+  });
+  assert.match(capturedPhotonUrl, /lat=14.6/);
+  assert.match(capturedPhotonUrl, /lon=121/);
+  assert.match(capturedPhotonUrl, /zoom=15/);
+  assert.match(capturedPhotonUrl, /bbox=120.9%2C14.5%2C121.1%2C14.7/);
+
+  // 4. Test rankAndDeduplicateSearchResults
+  const savedVenue = {
+    key: "saved-1",
+    name: "My Favorite McDonald's",
+    category: "restaurant",
+    location: { lat: 14.6050, lng: 120.9820, formattedAddress: "Ermita, Manila" },
+  };
+
+  const localOverpassVenue = {
+    key: "node/101",
+    name: "McDonald's",
+    category: "restaurant",
+    location: { lat: 14.6000, lng: 120.9800, osmId: "node/101", formattedAddress: "Taft, Manila" },
+  };
+
+  // Duplicate within 40m
+  const duplicatePhotonVenue = {
+    key: "photon-14.60005-120.98005",
+    name: "McDonald's",
+    category: "restaurant",
+    location: { lat: 14.60005, lng: 120.98005, formattedAddress: "Taft, Manila" },
+  };
+
+  // Nearby local venue (~2 km)
+  const nearbyVenue = {
+    key: "node/303",
+    name: "McDonald's Quirino",
+    category: "restaurant",
+    location: { lat: 14.5750, lng: 120.9900, formattedAddress: "Quirino, Manila" },
+  };
+
+  // Distant venue in another city (> 12 km, e.g. 500 km away)
+  const distantVenue = {
+    key: "node/404",
+    name: "McDonald's Cebu",
+    category: "restaurant",
+    location: { lat: 10.3157, lng: 123.8854, formattedAddress: "Cebu City" },
+  };
+
+  const ranked = osm.rankAndDeduplicateSearchResults(
+    [savedVenue],
+    [localOverpassVenue, nearbyVenue],
+    [duplicatePhotonVenue, distantVenue],
+    center,
+    40,
+    12000,
+  );
+
+  // Layer 1: Saved spot is strictly first
+  assert.equal(ranked[0].key, "saved-1");
+
+  // Layer 2: Duplicate within 40m is removed (should be 4 items total: saved, 2 local, 1 distant)
+  assert.equal(ranked.length, 4);
+  assert.ok(ranked.some((v) => v.key === "node/101"));
+  assert.ok(!ranked.some((v) => v.key === "photon-14.60005-120.98005"));
+
+  // Layer 3: Local venues (<= 12km) rank ahead of distant venues (> 12km), ordered closest-first
+  assert.equal(ranked[1].key, "node/101"); // ~0m from center
+  assert.equal(ranked[2].key, "node/303"); // ~3km from center
+  assert.equal(ranked[3].key, "node/404"); // Cebu (> 500km) strictly last
+
+  // Check distance is calculated on every venue
+  assert.ok(typeof ranked[0].distance === "number");
+  assert.ok(typeof ranked[1].distance === "number");
+  assert.equal(geo.formatDistance(ranked[1].distance), "0 m");
+  assert.ok(geo.formatDistance(ranked[2].distance).includes("km") || geo.formatDistance(ranked[2].distance).includes("m"));
+});
