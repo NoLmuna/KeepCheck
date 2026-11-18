@@ -61,11 +61,12 @@ const cloudinaryPhotoCacheRule = {
   }),
 };
 
-// Auth and token endpoints must always be NetworkOnly ahead of defaultCache so auth/session responses are never cached.
+// Auth and API endpoints must always be NetworkOnly ahead of defaultCache so responses are never cached.
 const authApiNetworkOnlyRule = {
   matcher: ({ url }: { url: URL }) =>
     url.pathname.startsWith("/api/auth/") ||
-    url.pathname === "/api/firebase-token",
+    url.pathname === "/api/firebase-token" ||
+    url.pathname === "/api/feedback",
   handler: new NetworkOnly(),
 };
 

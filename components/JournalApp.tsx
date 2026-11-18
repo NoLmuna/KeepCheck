@@ -21,6 +21,7 @@ import {
   WifiOff,
   AlertCircle,
   Database,
+  MessageSquarePlus,
 } from "lucide-react";
 import { db } from "@/app/db";
 import { useAuth } from "@/lib/auth";
@@ -46,6 +47,7 @@ import { GoogleIcon } from "./LandingPage";
 
 const JournalTools = dynamic(() => import("./JournalTools"), { ssr: false });
 const AccountDataModal = dynamic(() => import("./AccountDataModal"), { ssr: false });
+const FeedbackModal = dynamic(() => import("./FeedbackModal"), { ssr: false });
 const SpotsMap = dynamic(() => import("./SpotsMap"), {
   ssr: false,
   loading: () => (
@@ -71,6 +73,8 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
   const [externalMapSearch, setExternalMapSearch] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [accountDataOpen, setAccountDataOpen] = useState(false);
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState<"bug" | "idea" | "general">("general");
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"map" | "journal">(
@@ -325,6 +329,7 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
       if (event.key === "Escape") {
         setToolsOpen(false);
         setAccountDataOpen(false);
+        setFeedbackModalOpen(false);
         setUserMenuOpen(false);
         setLogModalOpen(false);
         setShowSearchDropdown(false);
@@ -556,6 +561,20 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
                 >
                   <Folder className="w-4 h-4 text-stone-500 dark:text-stone-400" />
                   <span>My Lists & Stats</span>
+                </button>
+
+                {/* Menu Action: Send Feedback */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    setFeedbackCategory("general");
+                    setFeedbackModalOpen(true);
+                  }}
+                  className="w-full px-2.5 py-2 text-left font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-lg flex items-center gap-2 cursor-pointer transition-colors"
+                >
+                  <MessageSquarePlus className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                  <span>Send Feedback</span>
                 </button>
 
                 {/* Menu Action 3: Install App */}
@@ -911,6 +930,18 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
         <AccountDataModal
           uid={uid}
           onClose={() => setAccountDataOpen(false)}
+          onOpenFeedback={(cat) => {
+            setFeedbackCategory(cat ?? "bug");
+            setFeedbackModalOpen(true);
+          }}
+        />
+      )}
+
+      {feedbackModalOpen && (
+        <FeedbackModal
+          isOpen={feedbackModalOpen}
+          defaultCategory={feedbackCategory}
+          onClose={() => setFeedbackModalOpen(false)}
         />
       )}
     </main>

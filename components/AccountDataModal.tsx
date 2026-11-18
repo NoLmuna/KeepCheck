@@ -16,9 +16,10 @@ import { downloadBlob } from "@/lib/journalMedia";
 interface Props {
   uid?: string;
   onClose: () => void;
+  onOpenFeedback?: (defaultCategory?: "bug" | "idea" | "general") => void;
 }
 
-export default function AccountDataModal({ uid, onClose }: Props) {
+export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props) {
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -227,6 +228,20 @@ export default function AccountDataModal({ uid, onClose }: Props) {
               <span>{busy ? "Processing backup file…" : message}</span>
             </div>
           )}
+
+          {/* Subtle contextual feedback trigger */}
+          <div className="pt-2 text-center border-t border-stone-100 dark:border-stone-800">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenFeedback?.("bug");
+              }}
+              className="text-xs text-stone-500 dark:text-stone-400 hover:text-amber-700 dark:hover:text-amber-400 underline underline-offset-2 transition-colors cursor-pointer py-1"
+            >
+              Notice a sync issue? Send feedback
+            </button>
+          </div>
         </div>
       </section>
     </div>

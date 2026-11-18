@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import {
   MapPin,
   Coffee,
@@ -16,6 +17,8 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
 import ThemeToggle from "./ThemeToggle";
+
+const FeedbackModal = dynamic(() => import("./FeedbackModal"), { ssr: false });
 
 /* ------------------------------------------------------------------ */
 /*  Official Google "G" Icon SVG                                       */
@@ -44,10 +47,12 @@ export function GoogleIcon({ className = "w-5 h-5" }: { className?: string }) {
 }
 
 export default function LandingPage() {
-  const { signInWithGoogle, continueAsGuest, quickLoginAccounts } = useAuth();
+  const { user, cachedSession, signInWithGoogle, continueAsGuest, quickLoginAccounts } = useAuth();
+  const isAuthenticated = !!(user || cachedSession);
   const { showToast } = useToast();
   const [signingIn, setSigningIn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   async function handleGoogleSignIn(emailHint?: string) {
     setSigningIn(true);
@@ -333,9 +338,30 @@ export default function LandingPage() {
       {/* ------------------------------------------------------------------ */}
       {/*  Footer                                                            */}
       {/* ------------------------------------------------------------------ */}
-      <footer className="w-full border-t border-stone-200/60 dark:border-stone-800/80 py-4 px-4 text-center text-xs text-[#6B5B52] dark:text-[#BCAFA2]">
+      <footer className="w-full border-t border-stone-200/60 dark:border-stone-800/80 py-4 px-4 text-center text-xs text-[#6B5B52] dark:text-[#BCAFA2] flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
         <p>KeepCheck — Personal culinary notebook for the places and dishes you love.</p>
+        <span className="hidden sm:inline text-stone-300 dark:text-stone-700">·</span>
+        <button
+          type="button"
+          onClick={() => {
+            if (isAuthenticated) {
+              setFeedbackOpen(true);
+            } else {
+              void handleGoogleSignIn();
+            }
+          }}
+          className="hover:text-amber-700 dark:hover:text-amber-400 transition-colors underline underline-offset-2 cursor-pointer font-medium"
+        >
+          Feedback
+        </button>
       </footer>
+
+      {feedbackOpen && (
+        <FeedbackModal
+          isOpen={feedbackOpen}
+          onClose={() => setFeedbackOpen(false)}
+        />
+      )}
     </div>
   );
 }

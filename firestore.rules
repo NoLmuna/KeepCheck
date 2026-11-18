@@ -10,5 +10,11 @@ service cloud.firestore {
         && request.resource.data.userId == uid
         && request.resource.data.updatedAt is number;
     }
+
+    // Feedback entries are written and managed solely via server-side Admin SDK.
+    // Block all direct client-side reads and writes.
+    match /feedback/{feedbackId} {
+      allow read, write: if false;
+    }
   }
 }

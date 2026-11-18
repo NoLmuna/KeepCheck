@@ -44,6 +44,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.email = profile.email;
         token.name = profile.name;
         token.picture = profile.picture;
+        if (profile.sub) {
+          token.sub = profile.sub;
+        }
       }
       return token;
     },
@@ -51,6 +54,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     /** Expose the user info from the JWT in the session object. */
     async session({ session, token }) {
       if (session.user) {
+        if (token.sub) {
+          session.user.id = token.sub;
+        }
         session.user.email = token.email as string;
         session.user.name = token.name as string;
         session.user.image = token.picture as string;
