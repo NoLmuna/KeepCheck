@@ -101,11 +101,18 @@ export function categoryFor(value?: string): Venue["category"] {
 }
 import type { Spot } from "./models";
 export function journalVenue(spot: Spot): Venue {
+  const loc: SpotLocation = spot.location && Number.isFinite(spot.location.lat) && Number.isFinite(spot.location.lng)
+    ? spot.location
+    : {
+        lat: 0,
+        lng: 0,
+        formattedAddress: "Location not recorded",
+      };
   return {
     key: `venue-${spot.id}`,
-    name: spot.name,
-    category: spot.category,
-    location: spot.location,
+    name: spot.name || "Unnamed Spot",
+    category: spot.category || "other",
+    location: loc,
     record: spot,
   };
 }

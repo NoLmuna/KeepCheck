@@ -127,11 +127,18 @@ export default function SpotsMap({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const droppedPinMarkerRef = useRef<L.Marker | null>(null);
   const currentPopupRef = useRef<L.Popup | null>(null);
+  const lastMarkerClickTimeRef = useRef<number>(0);
 
   const { online, position, gps, rawPosition, subscribePosition } = context;
   const { showToast } = useToast();
 
   const [selected, setSelected] = useState<Venue | null>(externalSelection);
+  const [activeDroppedPin, setActiveDroppedPin] = useState<{
+    venue: Venue;
+    isLoading: boolean;
+    addressLabel: string;
+    nearbyStores?: Venue[];
+  } | null>(null);
   const [pois, setPois] = useState<Venue[]>([]);
   const poisRef = useRef<Venue[]>([]);
   useEffect(() => {
@@ -220,7 +227,17 @@ export default function SpotsMap({
 
   const flyToVenue = useCallback((venue: Venue) => {
     const map = mapRef.current;
-    if (!map || venue.record?.locationMissing) return;
+    if (
+      !map ||
+      !venue ||
+      !venue.location ||
+      !Number.isFinite(venue.location.lat) ||
+      !Number.isFinite(venue.location.lng) ||
+      (venue.location.lat === 0 && venue.location.lng === 0) ||
+      venue.record?.locationMissing
+    ) {
+      return;
+    }
 
     const targetZoom = Math.max(map.getZoom(), 16);
     const latlng = L.latLng(venue.location.lat, venue.location.lng);
@@ -279,9 +296,22 @@ export default function SpotsMap({
     }
   }, [externalSelection, flyToVenue]);
 
+  const clearDroppedPin = useCallback(() => {
+    setActiveDroppedPin(null);
+    if (droppedPinMarkerRef.current) {
+      droppedPinMarkerRef.current.remove();
+      droppedPinMarkerRef.current = null;
+    }
+    if (currentPopupRef.current) {
+      currentPopupRef.current.remove();
+      currentPopupRef.current = null;
+    }
+  }, []);
+
   const choose = useCallback(
     (venue: Venue) => {
       reverse.current?.abort();
+      clearDroppedPin();
       setSelected(venue);
       onSelectionRef.current?.(venue);
       setShowRoute(false);
@@ -293,7 +323,7 @@ export default function SpotsMap({
       setNearbyDrawerOpen(false);
       flyToVenue(venue);
     },
-    [flyToVenue],
+    [flyToVenue, clearDroppedPin],
   );
 
   // Close search dropdown or nearby drawer on click outside
@@ -409,12 +439,21 @@ export default function SpotsMap({
     const pinMarker = L.marker(latlng, {
       icon: L.divIcon({
         html: pinDiv,
-        className: "keepcheck-marker",
+        className: "keepcheck-marker cursor-pointer",
         iconSize: [36, 36],
         iconAnchor: [18, 36],
       }),
       zIndexOffset: 1500,
     }).addTo(map);
+
+    pinMarker.on("click", (e) => {
+      L.DomEvent.stopPropagation(e);
+      lastMarkerClickTimeRef.current = Date.now();
+      if (currentPopupRef.current) {
+        currentPopupRef.current.openOn(map);
+      }
+    });
+
     droppedPinMarkerRef.current = pinMarker;
   }, []);
 
@@ -645,11 +684,7 @@ export default function SpotsMap({
         "py-1.5 px-2.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs";
       btnLog.innerHTML = `<span>Log Visit</span>`;
       btnLog.onclick = () => {
-        map.closePopup();
-        if (droppedPinMarkerRef.current) {
-          droppedPinMarkerRef.current.remove();
-          droppedPinMarkerRef.current = null;
-        }
+        clearDroppedPin();
         onSelectionRef.current?.(activeVenue, "visit");
       };
       btnContainer.appendChild(btnLog);
@@ -661,11 +696,7 @@ export default function SpotsMap({
         "py-1.5 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs";
       btnWish.innerHTML = `<span>Want to Try</span>`;
       btnWish.onclick = () => {
-        map.closePopup();
-        if (droppedPinMarkerRef.current) {
-          droppedPinMarkerRef.current.remove();
-          droppedPinMarkerRef.current = null;
-        }
+        clearDroppedPin();
         onSelectionRef.current?.(activeVenue, "wishlist");
       };
       btnContainer.appendChild(btnWish);
@@ -714,6 +745,11 @@ export default function SpotsMap({
             catBadge.innerHTML = `<span class="w-3 h-3 flex items-center justify-center">${cSvg}</span><span>${cName}</span>`;
             nearbyContainer.innerHTML = "";
             popup.update();
+            setActiveDroppedPin({
+              venue: store,
+              isLoading: false,
+              addressLabel: store.location.locality || store.location.formattedAddress || coordinateLabel(store.location),
+            });
           };
           nearbyContainer.appendChild(storeBtn);
         }
@@ -816,6 +852,14 @@ export default function SpotsMap({
 
       // Open floating popover directly above the map pin
       openVenuePopover(venue, latlng);
+      setActiveDroppedPin({
+        venue,
+        isLoading: false,
+        addressLabel:
+          venue.location.locality ||
+          venue.location.formattedAddress ||
+          coordinateLabel(venue.location),
+      });
     },
     [choose, flyToVenue, openVenuePopover, renderDroppedPin],
   );
@@ -872,6 +916,11 @@ export default function SpotsMap({
 
     // Handle Map Click: Snap to Store within 40m, or lookup real store / street name
     const handleMapClick = async (e: L.LeafletMouseEvent) => {
+      // Prevent map clicks from firing right after tapping a marker (e.g. mobile touch bubble)
+      if (Date.now() - lastMarkerClickTimeRef.current < 450) {
+        return;
+      }
+
       // If user is currently in Pin Adjustment Mode, clicking the map moves the pin
       if (adjustingSpotRef.current) {
         updateAdjustedPosition({ lat: e.latlng.lat, lng: e.latlng.lng });
@@ -899,6 +948,15 @@ export default function SpotsMap({
         renderDroppedPin(snapLatLng);
         const otherNearby = nearbyCached.slice(1, 4).map((c) => c.venue);
         openVenuePopover(store, snapLatLng, false, otherNearby);
+        setActiveDroppedPin({
+          venue: store,
+          isLoading: false,
+          addressLabel:
+            store.location.locality ||
+            store.location.formattedAddress ||
+            coordinateLabel(store.location),
+          nearbyStores: otherNearby,
+        });
         return;
       }
 
@@ -915,6 +973,11 @@ export default function SpotsMap({
         },
       };
       const popoverHandle = openVenuePopover(tempVenue, e.latlng, true);
+      setActiveDroppedPin({
+        venue: tempVenue,
+        isLoading: true,
+        addressLabel: "Resolving address…",
+      });
 
       // 3. Run fast 2500ms lookup (Photon reverse + Overpass around:50 + Nominatim)
       try {
@@ -923,36 +986,37 @@ export default function SpotsMap({
           poisRef.current,
           controller.signal,
         );
-        if (!controller.signal.aborted && popoverHandle) {
-          if (resolved.snappedVenue) {
-            // Snap the dropped pin marker to the storefront's exact coordinates
+        if (!controller.signal.aborted) {
+          const finalVenue: Venue = resolved.snappedVenue ?? {
+            key: `pin-${lat.toFixed(5)}-${lng.toFixed(5)}`,
+            name: resolved.title,
+            category: resolved.category,
+            location: resolved.location,
+          };
+          if (resolved.snappedVenue && droppedPinMarkerRef.current) {
             const storeLatLng = L.latLng(
               resolved.snappedVenue.location.lat,
               resolved.snappedVenue.location.lng,
             );
-            if (droppedPinMarkerRef.current) {
-              droppedPinMarkerRef.current.setLatLng(storeLatLng);
-            }
+            droppedPinMarkerRef.current.setLatLng(storeLatLng);
+          }
+          if (popoverHandle) {
             popoverHandle.updateVenue(
-              resolved.snappedVenue,
-              resolved.title,
-              resolved.subtitle,
-              resolved.nearbyStores,
-            );
-          } else {
-            const fallbackVenue: Venue = {
-              key: `pin-${lat.toFixed(5)}-${lng.toFixed(5)}`,
-              name: resolved.title,
-              category: resolved.category,
-              location: resolved.location,
-            };
-            popoverHandle.updateVenue(
-              fallbackVenue,
+              finalVenue,
               resolved.title,
               resolved.subtitle,
               resolved.nearbyStores,
             );
           }
+          setActiveDroppedPin({
+            venue: finalVenue,
+            isLoading: false,
+            addressLabel:
+              resolved.subtitle ||
+              resolved.location.formattedAddress ||
+              coordinateLabel(resolved.location),
+            nearbyStores: resolved.nearbyStores,
+          });
         }
       } catch {
         // Suppress abort
@@ -1190,7 +1254,7 @@ export default function SpotsMap({
       } else {
         // Discovered Nearby POI: Translucent frosted-espresso micro-pins with clean category icon and venue name pill
         html = `
-          <div class="keepcheck-editorial-pin keepcheck-poi-inner pointer-events-none select-none flex flex-col items-center" style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 0);">
+          <div class="keepcheck-editorial-pin keepcheck-poi-inner pointer-events-auto cursor-pointer select-none flex flex-col items-center" style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 0);">
             <div class="pointer-events-auto flex flex-col items-center group">
               <div class="w-6.5 h-6.5 rounded-full bg-[#1E1815]/85 backdrop-blur-md text-stone-200 flex items-center justify-center shadow-xs border border-white/20 transition-all group-hover:scale-115 group-hover:border-amber-500 group-hover:text-amber-400">
                 ${iconSvg}
@@ -1207,10 +1271,10 @@ export default function SpotsMap({
       }
 
       const markerClass = isSaved
-        ? "keepcheck-marker keepcheck-saved-marker"
-        : "keepcheck-marker keepcheck-poi-marker";
-      const iconSize: [number, number] = [0, 0];
-      const iconAnchor: [number, number] = [0, 0];
+        ? "keepcheck-marker keepcheck-saved-marker cursor-pointer"
+        : "keepcheck-marker keepcheck-poi-marker cursor-pointer";
+      const iconSize: [number, number] = [44, 44];
+      const iconAnchor: [number, number] = [22, 44];
 
       if (!entry) {
         const marker = L.marker([venue.location.lat, venue.location.lng], {
@@ -1231,6 +1295,8 @@ export default function SpotsMap({
 
         marker.on("click", (e: L.LeafletMouseEvent) => {
           L.DomEvent.stopPropagation(e);
+          lastMarkerClickTimeRef.current = Date.now();
+          clearDroppedPin();
           // If venue is saved, choose it in sidebar
           if (cur.venue.record) {
             choose(cur.venue);
@@ -1242,6 +1308,14 @@ export default function SpotsMap({
             );
             map.panTo(targetLatLng, { animate: true, duration: 0.4 });
             openVenuePopover(cur.venue, targetLatLng);
+            setActiveDroppedPin({
+              venue: cur.venue,
+              isLoading: false,
+              addressLabel:
+                cur.venue.location.locality ||
+                cur.venue.location.formattedAddress ||
+                coordinateLabel(cur.venue.location),
+            });
           }
         });
       } else {
@@ -1804,6 +1878,98 @@ export default function SpotsMap({
             >
               <Check className="w-3.5 h-3.5" />
               <span>Confirm Pin Location</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Bottom Action Card for Dropped / Unsaved Pin */}
+      {activeDroppedPin && !activeAdjustingSpot && (
+        <div className="absolute left-3.5 right-3.5 bottom-16 sm:bottom-6 sm:left-auto sm:right-3.5 z-40 sm:w-96 bg-white/98 dark:bg-[#1E1815]/98 backdrop-blur-md rounded-2xl shadow-2xl border border-stone-200/90 dark:border-stone-800 p-3.5 flex flex-col gap-2.5 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/70 flex items-center justify-center shrink-0 mt-0.5">
+                <span
+                  dangerouslySetInnerHTML={{
+                    __html: categorySvgs[activeDroppedPin.venue.category] ?? categorySvgs.other,
+                  }}
+                  className="w-4 h-4 flex items-center justify-center"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300">
+                    {getCategoryDisplayName(activeDroppedPin.venue.category)}
+                  </span>
+                  {(() => {
+                    const hours = getOpeningHoursStatus(activeDroppedPin.venue.openingHours);
+                    if (!hours) return null;
+                    return hours === "open" ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Open now
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
+                        Closed
+                      </span>
+                    );
+                  })()}
+                </div>
+                <h4 className="font-serif font-bold text-sm text-stone-900 dark:text-white truncate mt-0.5">
+                  {activeDroppedPin.isLoading ? (
+                    <span className="inline-flex items-center gap-1.5 text-stone-500 dark:text-stone-400">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Locating spot…
+                    </span>
+                  ) : (
+                    activeDroppedPin.venue.name
+                  )}
+                </h4>
+                <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate mt-0.5">
+                  {activeDroppedPin.isLoading
+                    ? "Resolving address…"
+                    : activeDroppedPin.addressLabel}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={clearDroppedPin}
+              className="w-8 h-8 rounded-lg text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+              aria-label="Clear pin"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-stone-200/80 dark:border-stone-800">
+            <button
+              type="button"
+              onClick={() => {
+                const venueToLog = activeDroppedPin.venue;
+                clearDroppedPin();
+                onSelectionRef.current?.(venueToLog, "visit");
+              }}
+              className="min-h-[44px] px-3 py-2 bg-amber-700 hover:bg-amber-800 active:bg-amber-900 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Log This Spot</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const venueToWish = activeDroppedPin.venue;
+                clearDroppedPin();
+                onSelectionRef.current?.(venueToWish, "wishlist");
+              }}
+              className="min-h-[44px] px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Bookmark className="w-4 h-4" />
+              <span>Want to Try</span>
             </button>
           </div>
         </div>

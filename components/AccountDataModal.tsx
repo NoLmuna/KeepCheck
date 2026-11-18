@@ -26,6 +26,16 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
   const [importData, setImportData] = useState<unknown>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const backdropPointerDownRef = useRef<EventTarget | null>(null);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -56,9 +66,17 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
 
   return (
     <div
-      className="fixed inset-0 z-[950] flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs animate-backdrop"
+      className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs animate-backdrop"
+      onPointerDown={(e) => {
+        backdropPointerDownRef.current = e.target;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (
+          e.target === e.currentTarget &&
+          backdropPointerDownRef.current === e.currentTarget
+        ) {
+          onClose();
+        }
       }}
     >
       <section
@@ -66,16 +84,16 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
         role="dialog"
         aria-modal="true"
         aria-label="Account & Data Management"
-        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-800 p-5 sm:p-6 text-stone-900 dark:text-stone-100 shadow-2xl flex flex-col gap-4 animate-modal-enter"
+        className="w-full max-w-lg max-h-[90dvh] rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-800 text-stone-900 dark:text-stone-100 shadow-2xl flex flex-col overflow-hidden animate-modal-enter"
       >
-        {/* Header */}
-        <div className="flex justify-between items-start pb-3 border-b border-stone-100 dark:border-stone-800">
+        {/* Sticky Header */}
+        <div className="flex justify-between items-center px-5 sm:px-6 py-4 border-b border-stone-100 dark:border-stone-800 bg-[#FAF7F2] dark:bg-[#15110F] shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 flex items-center justify-center shrink-0">
               <Database className="w-5 h-5 text-amber-700 dark:text-amber-400" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-serif font-bold text-stone-900 dark:text-white">
+              <h2 className="text-base sm:text-lg font-serif font-bold text-stone-900 dark:text-white">
                 Account & Data
               </h2>
               <p className="text-xs text-stone-500 dark:text-stone-400">
@@ -87,14 +105,14 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
           <button
             aria-label="Close modal"
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="space-y-4">
+        {/* Scrollable Content Body */}
+        <div className="p-5 sm:p-6 overflow-y-auto overscroll-contain flex-1 space-y-4">
           <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
             All your venues, notes, photos, and ratings are stored offline-first on your device. You can download a complete backup at any time or transfer your data across devices.
           </p>
@@ -117,7 +135,7 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
                   setMessage("Full JSON backup downloaded successfully!");
                 });
               }}
-              className="p-3.5 bg-stone-50 dark:bg-[#251D18] hover:bg-stone-100 dark:hover:bg-[#2E241E] border border-stone-200 dark:border-stone-700 rounded-xl text-left cursor-pointer transition-all shadow-2xs group"
+              className="p-3.5 min-h-[44px] bg-stone-50 dark:bg-[#251D18] hover:bg-stone-100 dark:hover:bg-[#2E241E] border border-stone-200 dark:border-stone-700 rounded-xl text-left cursor-pointer transition-all shadow-2xs group"
             >
               <div className="flex items-center gap-2 text-xs font-bold text-stone-900 dark:text-white mb-1">
                 <Download className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 group-hover:scale-110 transition-transform" />
@@ -143,7 +161,7 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
                   setMessage("CSV spreadsheet exported successfully!");
                 });
               }}
-              className="p-3.5 bg-stone-50 dark:bg-[#251D18] hover:bg-stone-100 dark:hover:bg-[#2E241E] border border-stone-200 dark:border-stone-700 rounded-xl text-left cursor-pointer transition-all shadow-2xs group"
+              className="p-3.5 min-h-[44px] bg-stone-50 dark:bg-[#251D18] hover:bg-stone-100 dark:hover:bg-[#2E241E] border border-stone-200 dark:border-stone-700 rounded-xl text-left cursor-pointer transition-all shadow-2xs group"
             >
               <div className="flex items-center gap-2 text-xs font-bold text-stone-900 dark:text-white mb-1">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
@@ -186,7 +204,7 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
                     setMessage(`Backup file "${f.name}" verified. Tap confirm to restore.`);
                   });
                 }}
-                className="w-full text-xs text-stone-700 dark:text-stone-200 file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border file:border-stone-300 dark:file:border-stone-600 file:text-xs file:font-semibold file:bg-white dark:file:bg-stone-800 file:text-stone-900 dark:file:text-white hover:file:bg-stone-100 dark:hover:file:bg-stone-700 cursor-pointer"
+                className="w-full text-base md:text-xs text-stone-700 dark:text-stone-200 file:mr-3 file:py-2.5 file:px-3.5 file:rounded-lg file:border file:border-stone-300 dark:file:border-stone-600 file:text-xs file:font-semibold file:bg-white dark:file:bg-stone-800 file:text-stone-900 dark:file:text-white hover:file:bg-stone-100 dark:hover:file:bg-stone-700 cursor-pointer"
               />
             </div>
 
@@ -202,7 +220,7 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
                     setMessage(`Successfully restored ${count} spots into your journal!`);
                   });
                 }}
-                className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                className="w-full min-h-[44px] py-2.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
               >
                 <Upload className="w-4 h-4" />
                 <span>Confirm & Restore Places</span>
@@ -242,6 +260,17 @@ export default function AccountDataModal({ uid, onClose, onOpenFeedback }: Props
               Notice a sync issue? Send feedback
             </button>
           </div>
+        </div>
+
+        {/* Sticky Footer */}
+        <div className="flex items-center justify-end px-5 sm:px-6 py-3.5 border-t border-stone-100 dark:border-stone-800 bg-[#FAF7F2] dark:bg-[#15110F] shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-[44px] px-5 py-2 text-xs font-semibold text-stone-700 dark:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 rounded-xl transition-colors cursor-pointer"
+          >
+            Done
+          </button>
         </div>
       </section>
     </div>

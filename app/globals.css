@@ -900,3 +900,19 @@ body {
   outline-offset: 2px;
 }
 
+/* Prevent iOS Safari input auto-zoom and shift on mobile (< 768px) */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch ergonomic handling for Leaflet markers and map pins */
+.keepcheck-marker {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+

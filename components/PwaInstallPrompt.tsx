@@ -92,6 +92,16 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     };
   }, [showToast]);
 
+  // Lock body scroll when iOS instructions modal is open
+  useEffect(() => {
+    if (!showIOSModal) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [showIOSModal]);
+
   const promptInstall = useCallback(async () => {
     if (isInstalled) {
       showToast("KeepCheck is already installed on your device", "info");
@@ -211,9 +221,9 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => setShowIOSModal(false)}
                 aria-label="Close"
-                className="p-1 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 rounded-lg cursor-pointer"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 rounded-lg cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -263,7 +273,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => setShowIOSModal(false)}
-              className="w-full py-2 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold rounded-xl transition-colors cursor-pointer mt-1"
+              className="w-full min-h-[44px] py-2 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold rounded-xl transition-colors cursor-pointer mt-1"
             >
               Got it
             </button>

@@ -28,27 +28,42 @@ async function resizeToCanvas(
   source: Blob,
   maxDimension: number,
 ): Promise<HTMLCanvasElement> {
+  // Cap max dimension to 1600px for mobile memory safety
+  const safeMax = Math.min(maxDimension, 1600);
+
   // `imageOrientation: "from-image"` tells the browser to apply the
   // EXIF rotation before returning pixel data — prevents sideways photos
   // from mobile cameras.
-  const bitmap = await createImageBitmap(source, {
-    imageOrientation: "from-image",
-  });
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(source, {
+      imageOrientation: "from-image",
+    });
+  } catch {
+    bitmap = await createImageBitmap(source);
+  }
 
   let { width, height } = bitmap;
 
-  // Scale down proportionally if the image exceeds `maxDimension`.
-  if (width > maxDimension || height > maxDimension) {
-    const ratio = Math.min(maxDimension / width, maxDimension / height);
-    width = Math.round(width * ratio);
-    height = Math.round(height * ratio);
+  // Scale down proportionally if the image exceeds `safeMax`.
+  if (width > safeMax || height > safeMax) {
+    const ratio = Math.min(safeMax / width, safeMax / height);
+    width = Math.max(1, Math.round(width * ratio));
+    height = Math.max(1, Math.round(height * ratio));
   }
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
 
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    canvas.width = 0;
+    canvas.height = 0;
+    throw new Error("Canvas context 2D unavailable");
+  }
+
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close(); // free GPU memory
 
@@ -81,7 +96,12 @@ export async function makeThumbnail(
   quality = 0.75,
 ): Promise<string> {
   const canvas = await resizeToCanvas(file, maxSize);
-  return canvas.toDataURL("image/jpeg", quality);
+  try {
+    return canvas.toDataURL("image/jpeg", quality);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 /**
@@ -101,7 +121,12 @@ export async function makeThumbnailFromBlob(
   quality = 0.75,
 ): Promise<string> {
   const canvas = await resizeToCanvas(blob, maxSize);
-  return canvas.toDataURL("image/jpeg", quality);
+  try {
+    return canvas.toDataURL("image/jpeg", quality);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 /**
@@ -111,21 +136,23 @@ export async function makeThumbnailFromBlob(
  * compressed) binary, retrieved only when the user opens a detail view.
  *
  * @param file     - Raw image file from `<input type="file">`.
- * @param maxWidth - Maximum width in px (default 900). Height scales
+ * @param maxWidth - Maximum width in px (default 1600). Height scales
  *                   proportionally.
- * @param quality  - JPEG quality 0–1 (default 0.7).
+ * @param quality  - JPEG quality 0–1 (default 0.8).
  * @returns Compressed JPEG `Blob`.
  */
 export async function compressToBlob(
   file: File,
-  maxWidth = 900,
-  quality = 0.7,
+  maxWidth = 1600,
+  quality = 0.8,
 ): Promise<Blob> {
-  const canvas = await resizeToCanvas(file, maxWidth);
+  const canvas = await resizeToCanvas(file, Math.min(maxWidth, 1600));
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
+        canvas.width = 0;
+        canvas.height = 0;
         if (blob) resolve(blob);
         else reject(new Error("Canvas → Blob conversion failed."));
       },
@@ -160,24 +187,29 @@ export async function compressBlobToSafeBase64(
     return null;
   }
 
-  let base64 = canvas.toDataURL("image/jpeg", quality);
-  const targetLimitBytes = 700 * 1024; // 700KB string length
+  try {
+    let base64 = canvas.toDataURL("image/jpeg", quality);
+    const targetLimitBytes = 700 * 1024; // 700KB string length
 
-  let retries = 0;
-  while (base64.length > targetLimitBytes && retries < 3) {
-    retries++;
-    quality -= 0.15; // Step down quality (e.g. 0.7 -> 0.55 -> 0.40 -> 0.25)
-    if (quality < 0.1) {
-      break;
+    let retries = 0;
+    while (base64.length > targetLimitBytes && retries < 3) {
+      retries++;
+      quality -= 0.15; // Step down quality (e.g. 0.7 -> 0.55 -> 0.40 -> 0.25)
+      if (quality < 0.1) {
+        break;
+      }
+      console.log(`[KeepCheck] Base64 image size (${Math.round(base64.length / 1024)}KB) exceeds 700KB limit. Re-compressing with quality ${quality.toFixed(2)} (retry ${retries}/3)...`);
+      base64 = canvas.toDataURL("image/jpeg", quality);
     }
-    console.log(`[KeepCheck] Base64 image size (${Math.round(base64.length / 1024)}KB) exceeds 700KB limit. Re-compressing with quality ${quality.toFixed(2)} (retry ${retries}/3)...`);
-    base64 = canvas.toDataURL("image/jpeg", quality);
-  }
 
-  if (base64.length > targetLimitBytes) {
-    console.warn(`[KeepCheck] Base64 image still too large (${Math.round(base64.length / 1024)}KB) after retries. Skipping sync to Firestore to prevent oversized document failure.`);
-    return null;
-  }
+    if (base64.length > targetLimitBytes) {
+      console.warn(`[KeepCheck] Base64 image still too large (${Math.round(base64.length / 1024)}KB) after retries. Skipping sync to Firestore to prevent oversized document failure.`);
+      return null;
+    }
 
-  return base64;
+    return base64;
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }

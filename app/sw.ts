@@ -138,11 +138,11 @@ self.addEventListener("activate", (event) => {
       Promise.all(
         cacheKeys
           .filter((name) => {
-            // Keep the current precache and any Serwist runtime caches.
-            // Delete everything else (old precache buckets, orphaned caches).
+            // Keep the current active precache, current active runtime cache, and persistent user media/tiles.
+            // Delete all older precache buckets and stale runtime caches from previous builds.
             return (
               name !== currentPrecacheName &&
-              !name.startsWith("serwist") &&
+              name !== cacheNames.runtime &&
               !preservedCaches.includes(name)
             );
           })

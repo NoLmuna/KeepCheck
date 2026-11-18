@@ -54,6 +54,7 @@ export default function FeedbackModal({
   const { showToast } = useToast();
   const dialogRef = useRef<HTMLElement>(null);
   const openedAtRef = useRef<number>(0);
+  const backdropPointerDownRef = useRef<EventTarget | null>(null);
 
   const [category, setCategory] = useState<FeedbackCategory>(defaultCategory);
   const [message, setMessage] = useState<string>(getStoredDraft);
@@ -64,6 +65,16 @@ export default function FeedbackModal({
     typeof navigator !== "undefined" ? navigator.onLine : true
   );
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
 
   // Capture openedAt timestamp on mount / open
   useEffect(() => {
@@ -194,9 +205,18 @@ export default function FeedbackModal({
 
   return (
     <div
-      className="fixed inset-0 z-[950] flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs animate-backdrop"
+      className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs animate-backdrop"
+      onPointerDown={(e) => {
+        backdropPointerDownRef.current = e.target;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !submitting) onClose();
+        if (
+          e.target === e.currentTarget &&
+          backdropPointerDownRef.current === e.currentTarget &&
+          !submitting
+        ) {
+          onClose();
+        }
       }}
     >
       <section
@@ -204,10 +224,10 @@ export default function FeedbackModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="feedback-modal-title"
-        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-800 p-5 sm:p-6 text-stone-900 dark:text-stone-100 shadow-2xl flex flex-col gap-4 animate-modal-enter"
+        className="w-full max-w-lg max-h-[90dvh] rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[#1C1612] border border-stone-200 dark:border-stone-800 text-stone-900 dark:text-stone-100 shadow-2xl flex flex-col overflow-hidden animate-modal-enter"
       >
-        {/* Header */}
-        <div className="flex justify-between items-start pb-3 border-b border-stone-100 dark:border-stone-800">
+        {/* Sticky Header */}
+        <div className="flex justify-between items-center px-5 sm:px-6 py-4 border-b border-stone-100 dark:border-stone-800 bg-[#FAF7F2] dark:bg-[#15110F] shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 flex items-center justify-center shrink-0">
               <MessageSquare className="w-5 h-5 text-amber-700 dark:text-amber-400" />
@@ -215,7 +235,7 @@ export default function FeedbackModal({
             <div>
               <h2
                 id="feedback-modal-title"
-                className="text-lg sm:text-xl font-serif font-bold text-stone-900 dark:text-white"
+                className="text-base sm:text-lg font-serif font-bold text-stone-900 dark:text-white"
               >
                 Send Feedback
               </h2>
@@ -230,165 +250,167 @@ export default function FeedbackModal({
             aria-label="Close modal"
             onClick={onClose}
             disabled={submitting}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer disabled:opacity-50"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors cursor-pointer disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Honeypot field (hidden from assistive technologies & visually hidden) */}
-          <div aria-hidden="true" className="sr-only opacity-0 absolute -z-10 pointer-events-none">
-            <label htmlFor="feedback-website-honeypot">Website</label>
-            <input
-              id="feedback-website-honeypot"
-              type="text"
-              name="website"
-              value={honeypot}
-              onChange={(e) => setHoneypot(e.target.value)}
-              tabIndex={-1}
-              autoComplete="off"
-            />
-          </div>
-
-          {/* Category selection */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-stone-700 dark:text-stone-300">
-              Category
-            </label>
-            <div
-              role="radiogroup"
-              aria-label="Feedback category"
-              className="grid grid-cols-3 gap-2"
-            >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={category === "bug"}
-                onClick={() => setCategory("bug")}
-                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                  category === "bug"
-                    ? "bg-red-50 dark:bg-red-950/60 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 shadow-2xs"
-                    : "bg-stone-50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
-                }`}
-              >
-                <Bug className="w-4 h-4 shrink-0" />
-                <span>Bug Report</span>
-              </button>
-
-              <button
-                type="button"
-                role="radio"
-                aria-checked={category === "idea"}
-                onClick={() => setCategory("idea")}
-                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                  category === "idea"
-                    ? "bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 shadow-2xs"
-                    : "bg-stone-50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
-                }`}
-              >
-                <Sparkles className="w-4 h-4 shrink-0" />
-                <span>Feature Idea</span>
-              </button>
-
-              <button
-                type="button"
-                role="radio"
-                aria-checked={category === "general"}
-                onClick={() => setCategory("general")}
-                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                  category === "general"
-                    ? "bg-stone-200/80 dark:bg-stone-700 border-stone-400 dark:border-stone-600 text-stone-900 dark:text-white shadow-2xs"
-                    : "bg-stone-50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
-                }`}
-              >
-                <MessageSquare className="w-4 h-4 shrink-0" />
-                <span>General</span>
-              </button>
+        {/* Scrollable Form Body */}
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+          <div className="p-5 sm:p-6 overflow-y-auto overscroll-contain flex-1 space-y-4">
+            {/* Honeypot field (hidden from assistive technologies & visually hidden) */}
+            <div aria-hidden="true" className="sr-only opacity-0 absolute -z-10 pointer-events-none">
+              <label htmlFor="feedback-website-honeypot">Website</label>
+              <input
+                id="feedback-website-honeypot"
+                type="text"
+                name="website"
+                value={honeypot}
+                onChange={(e) => setHoneypot(e.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+              />
             </div>
-          </div>
 
-          {/* Message textarea with live character counter */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between items-center">
-              <label
-                htmlFor="feedback-message"
-                className="text-xs font-semibold text-stone-700 dark:text-stone-300"
-              >
-                Message
+            {/* Category selection */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-stone-700 dark:text-stone-300">
+                Category
               </label>
-              <span
-                className={`text-[11px] tabular-nums ${
-                  message.length > 950
-                    ? "text-red-600 dark:text-red-400 font-bold"
-                    : "text-stone-500 dark:text-stone-400"
-                }`}
+              <div
+                role="radiogroup"
+                aria-label="Feedback category"
+                className="grid grid-cols-3 gap-2"
               >
-                {message.length} / 1000
-              </span>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={category === "bug"}
+                  onClick={() => setCategory("bug")}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                    category === "bug"
+                      ? "bg-red-50 dark:bg-red-950/60 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 shadow-2xs"
+                      : "bg-stone-50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  <Bug className="w-4 h-4 shrink-0" />
+                  <span>Bug Report</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={category === "idea"}
+                  onClick={() => setCategory("idea")}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                    category === "idea"
+                      ? "bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 shadow-2xs"
+                      : "bg-stone-50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span>Feature Idea</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={category === "general"}
+                  onClick={() => setCategory("general")}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                    category === "general"
+                      ? "bg-stone-200/80 dark:bg-stone-700 border-stone-400 dark:border-stone-600 text-stone-900 dark:text-white shadow-2xs"
+                      : "bg-stone-50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4 shrink-0" />
+                  <span>General</span>
+                </button>
+              </div>
             </div>
 
-            <textarea
-              id="feedback-message"
-              rows={4}
-              maxLength={1000}
-              value={message}
-              onChange={handleMessageChange}
-              placeholder={
-                category === "bug"
-                  ? "Describe what went wrong and how to reproduce it..."
-                  : category === "idea"
-                    ? "Describe your feature idea and how it would improve KeepCheck..."
-                    : "Share your thoughts, suggestions, or feedback..."
-              }
-              disabled={submitting}
-              className="w-full p-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-white placeholder:text-stone-400 text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all resize-y disabled:opacity-50"
-            />
-            <p className="text-[11px] text-stone-500 dark:text-stone-400">
-              Minimum 5 characters. Draft is automatically saved on this device.
-            </p>
+            {/* Message textarea with live character counter */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label
+                  htmlFor="feedback-message"
+                  className="text-xs font-semibold text-stone-700 dark:text-stone-300"
+                >
+                  Message
+                </label>
+                <span
+                  className={`text-[11px] tabular-nums ${
+                    message.length > 950
+                      ? "text-red-600 dark:text-red-400 font-bold"
+                      : "text-stone-500 dark:text-stone-400"
+                  }`}
+                >
+                  {message.length} / 1000
+                </span>
+              </div>
+
+              <textarea
+                id="feedback-message"
+                rows={4}
+                maxLength={1000}
+                value={message}
+                onChange={handleMessageChange}
+                placeholder={
+                  category === "bug"
+                    ? "Describe what went wrong and how to reproduce it..."
+                    : category === "idea"
+                      ? "Describe your feature idea and how it would improve KeepCheck..."
+                      : "Share your thoughts, suggestions, or feedback..."
+                }
+                disabled={submitting}
+                className="w-full p-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-white placeholder:text-stone-400 text-base md:text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all resize-y disabled:opacity-50"
+              />
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                Minimum 5 characters. Draft is automatically saved on this device.
+              </p>
+            </div>
+
+            {/* Offline warning */}
+            {!isOnline && (
+              <div
+                role="alert"
+                className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2"
+              >
+                <WifiOff className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>You are currently offline. Feedback submission requires an internet connection.</span>
+              </div>
+            )}
+
+            {/* Cooldown notice */}
+            {cooldownRemaining > 0 && (
+              <div
+                role="status"
+                className="p-3 rounded-xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs flex items-center gap-2"
+              >
+                <span>Please wait {cooldownRemaining}s before sending another feedback.</span>
+              </div>
+            )}
+
+            {/* Submission error message */}
+            {errorMessage && (
+              <div
+                role="alert"
+                className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-300 text-xs flex items-center gap-2"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
           </div>
 
-          {/* Offline warning */}
-          {!isOnline && (
-            <div
-              role="alert"
-              className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2"
-            >
-              <WifiOff className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-              <span>You are currently offline. Feedback submission requires an internet connection.</span>
-            </div>
-          )}
-
-          {/* Cooldown notice */}
-          {cooldownRemaining > 0 && (
-            <div
-              role="status"
-              className="p-3 rounded-xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs flex items-center gap-2"
-            >
-              <span>Please wait {cooldownRemaining}s before sending another feedback.</span>
-            </div>
-          )}
-
-          {/* Submission error message */}
-          {errorMessage && (
-            <div
-              role="alert"
-              className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-300 text-xs flex items-center gap-2"
-            >
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          {/* Modal Action Buttons */}
-          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-stone-100 dark:border-stone-800">
+          {/* Sticky Footer */}
+          <div className="flex items-center justify-end gap-2.5 px-5 sm:px-6 py-3.5 border-t border-stone-100 dark:border-stone-800 bg-[#FAF7F2] dark:bg-[#15110F] shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="min-h-[44px] px-4 py-2 text-xs font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              className="min-h-[44px] px-4 py-2 text-xs font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>

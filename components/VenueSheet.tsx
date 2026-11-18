@@ -160,6 +160,24 @@ export default function VenueSheet(p: Props) {
   const [duplicate, setDuplicate] = useState<Spot | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Keep ref of photo previews so they are always revoked on unmount
+  const photoPreviewsRef = useRef<string[]>([]);
+  useEffect(() => {
+    photoPreviewsRef.current = photoPreviews;
+  }, [photoPreviews]);
+
+  useEffect(() => {
+    return () => {
+      photoPreviewsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore
+        }
+      });
+    };
+  }, []);
+
   const heading = useRef<HTMLHeadingElement>(null);
   const quickPhotoInputRef = useRef<HTMLInputElement>(null);
 
@@ -334,7 +352,8 @@ export default function VenueSheet(p: Props) {
     }
   }
 
-  const { lat, lng } = p.venue.location;
+  const lat = p.venue.location?.lat ?? 0;
+  const lng = p.venue.location?.lng ?? 0;
   const isWishlist = spot?.status === "wishlist";
 
   const galleryPhotos: GalleryPhotoItem[] = useMemo(
@@ -349,14 +368,14 @@ export default function VenueSheet(p: Props) {
       data-expanded={expanded}
       data-embedded={!!p.embedded}
       className={`venue-detail flex flex-col bg-white dark:bg-[#1C1612] text-stone-900 dark:text-stone-100 ${
-        p.embedded ? "h-full w-full border-0" : "rounded-t-2xl sm:rounded-2xl shadow-xl"
+        p.embedded ? "h-full w-full border-0" : "rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[85dvh]"
       }`}
     >
       {/* Mobile Drawer Grabber */}
       {!p.embedded && (
         <button
           type="button"
-          className="sheet-toggle md:hidden w-full py-2 flex flex-col items-center justify-center cursor-pointer shrink-0"
+          className="sheet-toggle md:hidden w-full py-2.5 flex flex-col items-center justify-center cursor-pointer shrink-0 min-h-[44px]"
           aria-label={expanded ? "Collapse venue details" : "Expand venue details"}
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
@@ -393,6 +412,11 @@ export default function VenueSheet(p: Props) {
                     }`}
                   >
                     {isWishlist ? "Want to Try" : "Visited"}
+                  </span>
+                )}
+                {spot && !isWishlist && (
+                  <span className="text-[10px] font-semibold text-stone-700 dark:text-stone-300 bg-stone-200/70 dark:bg-stone-800 px-1.5 py-0.5 rounded border border-stone-200/60 dark:border-stone-700">
+                    {visits.length === 1 ? "1 visit" : `${visits.length} visits`}
                   </span>
                 )}
                 {spot?.budgetTier && (
@@ -453,27 +477,37 @@ export default function VenueSheet(p: Props) {
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {spot?.overallRating && (
+            {typeof spot?.overallRating === "number" && Number.isFinite(spot.overallRating) && spot.overallRating > 0 ? (
               <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full text-xs font-bold tabular-nums">
                 <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
                 <span>{spot.overallRating.toFixed(1)}</span>
               </div>
-            )}
+            ) : isWishlist ? (
+              <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-full text-xs font-bold">
+                <Bookmark className="w-3.5 h-3.5 fill-indigo-600 dark:fill-indigo-400 text-indigo-600 dark:text-indigo-400" />
+                <span>Want to Try</span>
+              </div>
+            ) : spot ? (
+              <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                <Star className="w-3.5 h-3.5 text-stone-400" />
+                <span>No rating yet</span>
+              </div>
+            ) : null}
             <button
               type="button"
               aria-label="Close venue details"
               onClick={p.onClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+              className="min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors cursor-pointer"
             >
-              <ArrowLeft className="w-4 h-4 md:inline hidden" />
-              <X className="w-4 h-4 md:hidden inline" />
+              <ArrowLeft className="w-5 h-5 md:inline hidden" />
+              <X className="w-5 h-5 md:hidden inline" />
             </button>
           </div>
         </div>
       </div>
 
       {/* Scrollable Body */}
-      <div className="venue-detail-body flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="venue-detail-body flex-1 overflow-y-auto overscroll-contain p-4 space-y-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* -------------------------------------------------------------- */}
         {/*  UNSAVED SPOT STATE: Clean, simple choice (Log Visit or Want to Try) */}
         {/*  No premature Google Maps, Waze, Menu Memory, or Visit History    */}
@@ -543,8 +577,8 @@ export default function VenueSheet(p: Props) {
                   type="button"
                   onClick={() => {
                     void shareCard(spot.name, [
-                      `${spot.overallRating ? `★ ${spot.overallRating.toFixed(1)}/5 · ` : ""}${
-                        spot.location.locality ?? spot.location.formattedAddress
+                      `${typeof spot.overallRating === "number" && Number.isFinite(spot.overallRating) && spot.overallRating > 0 ? `★ ${spot.overallRating.toFixed(1)}/5 · ` : ""}${
+                        spot.location?.locality ?? spot.location?.formattedAddress ?? "Location not recorded"
                       }`,
                       (spot.vibeTags ?? []).map((v) => v.replaceAll("-", " ")).join(" · "),
                       ...(spot.notes ? [`Note: ${spot.notes}`] : []),
@@ -789,18 +823,18 @@ export default function VenueSheet(p: Props) {
                                 name: spot.name,
                                 category: spot.category,
                                 status: spot.status,
-                                vibeTags: spot.vibeTags,
+                                vibeTags: spot.vibeTags ?? [],
                                 menuItems: updatedMenu,
-                                collectionIds: spot.collectionIds,
+                                collectionIds: spot.collectionIds ?? [],
                                 notes: spot.notes,
                                 budgetTier: spot.budgetTier,
                               });
                             }}
-                            className="p-1 text-stone-400 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer rounded"
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-1 text-stone-400 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer rounded"
                             title="Remove item from menu memory"
                             aria-label={`Remove ${m.name}`}
                           >
-                            <X className="w-3 h-3" />
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
@@ -812,18 +846,18 @@ export default function VenueSheet(p: Props) {
               )}
 
               {/* Quick Add Menu Item Inline */}
-              <div className="pt-2 border-t border-amber-200/40 dark:border-stone-700 flex items-center gap-1.5">
+              <div className="pt-2 border-t border-amber-200/40 dark:border-stone-700 flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
                 <input
                   type="text"
                   placeholder="Add dish or drink…"
                   value={menuName}
                   onChange={(e) => setMenuName(e.target.value)}
-                  className="flex-1 h-8 px-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
+                  className="flex-1 min-w-[140px] h-10 px-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
                 />
                 <select
                   value={verdict}
                   onChange={(e) => setVerdict(e.target.value as "must-order" | "skip")}
-                  className="h-8 px-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-200"
+                  className="h-10 min-h-[44px] px-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-800 dark:text-stone-200"
                 >
                   <option value="must-order">Must order</option>
                   <option value="skip">Skip</option>
@@ -843,16 +877,16 @@ export default function VenueSheet(p: Props) {
                         name: spot.name,
                         category: spot.category,
                         status: spot.status,
-                        vibeTags: spot.vibeTags,
+                        vibeTags: spot.vibeTags ?? [],
                         menuItems: updatedMenu,
-                        collectionIds: spot.collectionIds,
+                        collectionIds: spot.collectionIds ?? [],
                         notes: spot.notes,
                         budgetTier: spot.budgetTier,
                       });
                       setMenuName("");
                     }
                   }}
-                  className="h-8 px-2.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                  className="h-10 min-h-[44px] px-3 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center justify-center shrink-0"
                 >
                   Add
                 </button>
@@ -1007,7 +1041,7 @@ export default function VenueSheet(p: Props) {
                 aria-label="Venue name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full h-9 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
+                className="w-full h-11 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100 outline-none focus:border-amber-600"
               />
             </div>
 
@@ -1020,7 +1054,7 @@ export default function VenueSheet(p: Props) {
                   aria-label="Venue category"
                   value={category}
                   onChange={(e) => setCategory(e.target.value as Spot["category"])}
-                  className="w-full h-9 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100"
+                  className="w-full h-11 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100"
                 >
                   {["coffee", "restaurant", "bakery", "bar", "other"].map((c) => (
                     <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
@@ -1036,7 +1070,7 @@ export default function VenueSheet(p: Props) {
                   aria-label="Budget tier"
                   value={budget}
                   onChange={(e) => setBudget(e.target.value as typeof budget)}
-                  className="w-full h-9 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100"
+                  className="w-full h-11 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100"
                 >
                   <option value="">Not set</option>
                   {["₱", "₱₱", "₱₱₱"].map((b) => (
@@ -1060,7 +1094,7 @@ export default function VenueSheet(p: Props) {
                   placeholder="e.g. Recommended by Sarah, want to try the matcha latte & sourdough…"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full p-2.5 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none resize-none placeholder:text-stone-400"
+                  className="w-full p-2.5 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100 outline-none resize-none placeholder:text-stone-400"
                 />
               </div>
             )}
@@ -1081,7 +1115,7 @@ export default function VenueSheet(p: Props) {
                       aria-label="Visit date"
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="w-full h-9 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100"
+                      className="w-full h-11 px-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100"
                     />
                   </div>
 
@@ -1089,13 +1123,13 @@ export default function VenueSheet(p: Props) {
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300 mb-1">
                       Rating {rating > 0 ? `(${rating}/5)` : ""}
                     </label>
-                    <div className="flex items-center gap-1 h-9">
+                    <div className="flex items-center gap-0.5 h-11">
                       {[1, 2, 3, 4, 5].map((s) => (
                         <button
                           key={s}
                           type="button"
                           onClick={() => setRating(s)}
-                          className="p-0.5 cursor-pointer hover:scale-110 transition-transform"
+                          className="min-w-[40px] min-h-[40px] flex items-center justify-center p-0.5 cursor-pointer hover:scale-110 transition-transform"
                           aria-label={`Rate ${s} stars`}
                         >
                           <Star
@@ -1123,7 +1157,7 @@ export default function VenueSheet(p: Props) {
                     placeholder="Separate with commas (e.g. Latte, Croissant)"
                     value={items}
                     onChange={(e) => setItems(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none"
+                    className="w-full h-11 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100 outline-none"
                   />
                 </div>
 
@@ -1139,7 +1173,7 @@ export default function VenueSheet(p: Props) {
                     placeholder="e.g. 450"
                     value={spend}
                     onChange={(e) => setSpend(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none"
+                    className="w-full h-11 px-3 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100 outline-none"
                   />
                 </div>
 
@@ -1153,7 +1187,7 @@ export default function VenueSheet(p: Props) {
                     placeholder="What did you think of the coffee and vibe?"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    className="w-full p-2.5 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none resize-none"
+                    className="w-full p-2.5 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-900 dark:text-stone-100 outline-none resize-none"
                   />
                 </div>
 
@@ -1170,11 +1204,21 @@ export default function VenueSheet(p: Props) {
                           type="button"
                           onClick={() => {
                             setPhotos((prev) => prev.filter((_, idx) => idx !== i));
-                            setPhotoPreviews((prev) => prev.filter((_, idx) => idx !== i));
+                            setPhotoPreviews((prev) => {
+                              try {
+                                URL.revokeObjectURL(prev[i]);
+                              } catch {
+                                // ignore
+                              }
+                              return prev.filter((_, idx) => idx !== i);
+                            });
                           }}
-                          className="absolute top-1 right-1 w-5 h-5 bg-black/70 text-white rounded-full flex items-center justify-center hover:bg-black"
+                          aria-label="Remove photo"
+                          className="absolute -top-1 -right-1 min-w-[44px] min-h-[44px] flex items-center justify-center cursor-pointer z-10"
                         >
-                          <X className="w-3 h-3" />
+                          <span className="w-6 h-6 bg-black/80 text-white rounded-full flex items-center justify-center shadow-xs hover:bg-black transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                          </span>
                         </button>
                       </div>
                     ))}

@@ -44,6 +44,7 @@ import { usePwaInstall } from "./PwaInstallPrompt";
 import { useToast } from "@/lib/toast";
 import type { Spot, SpotLocation } from "@/lib/models";
 import { GoogleIcon } from "./LandingPage";
+import ErrorBoundary from "./ErrorBoundary";
 
 const JournalTools = dynamic(() => import("./JournalTools"), { ssr: false });
 const AccountDataModal = dynamic(() => import("./AccountDataModal"), { ssr: false });
@@ -103,9 +104,6 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
   const handleVenueSelection = useCallback((venue: Venue | null, action?: "visit" | "wishlist") => {
     setSelected(venue);
     setInitialAction(action);
-    if (venue && action && typeof window !== "undefined" && window.innerWidth < 768) {
-      setMobileTab("journal");
-    }
   }, []);
 
   // Search input and Photon dropdown in sidebar
@@ -615,7 +613,8 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
       {/* ------------------------------------------------------------------ */}
       {/*  Main Content Workspace                                            */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex-1 relative flex overflow-hidden min-h-0">
+      <ErrorBoundary>
+        <div className="flex-1 relative flex overflow-hidden min-h-0">
         {/* Left Sidebar */}
         <aside
           className={`w-full md:w-[400px] lg:w-[430px] shrink-0 bg-[#FAF7F2] dark:bg-[#15110F] border-r border-stone-200/90 dark:border-stone-800 flex flex-col h-full z-10 ${
@@ -851,6 +850,40 @@ export default function JournalApp({ mode = "split" }: { mode?: "list" | "map" |
           />
         </div>
       </div>
+      </ErrorBoundary>
+
+      {/* Mobile VenueSheet Bottom Sheet Drawer when viewing map */}
+      {selected && mobileTab === "map" && (
+        <div className="md:hidden fixed inset-0 z-50 pointer-events-none flex flex-col justify-end">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-xs pointer-events-auto animate-in fade-in duration-200"
+            onClick={() => {
+              setSelected(null);
+              setInitialAction(undefined);
+            }}
+            aria-hidden="true"
+          />
+          <div className="relative pointer-events-auto max-h-[85dvh] w-full bg-white dark:bg-[#1C1612] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-250">
+            <VenueSheet
+              embedded
+              venue={selected}
+              collections={collections}
+              position={context.position}
+              online={context.online}
+              initialAction={initialAction}
+              onClose={() => {
+                setSelected(null);
+                setInitialAction(undefined);
+              }}
+              onSave={save}
+              onAdjustPin={(spot) => {
+                setAdjustingSpot(spot);
+                setSelected(null);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Mobile Bottom Navigation (< 768px) */}
       <nav className="md:hidden h-14 bg-white dark:bg-[#1E1815] border-t border-stone-200/90 dark:border-stone-800 px-3 flex items-center justify-around shrink-0 z-30">

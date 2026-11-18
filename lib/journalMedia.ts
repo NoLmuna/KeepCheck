@@ -2,31 +2,67 @@ export async function compressVisitPhoto(
   file: Blob,
 ): Promise<{ blob: Blob; thumbnail: Blob }> {
   if (!file.type.startsWith("image/")) throw new Error("Choose an image file.");
-  const bitmap = await createImageBitmap(file);
+  let bitmap: ImageBitmap;
   try {
-    async function render(width: number, quality: number) {
-      const scale = Math.min(1, width / bitmap.width);
+    bitmap = await createImageBitmap(file, {
+      imageOrientation: "from-image",
+    });
+  } catch {
+    bitmap = await createImageBitmap(file);
+  }
+
+  try {
+    async function render(maxDim: number, quality: number): Promise<Blob> {
+      // Downscale safely, capping max dimension to 1600px for mobile WebKit/Chromium stability
+      const clampedMax = Math.min(maxDim, 1600);
+      const longest = Math.max(bitmap.width, bitmap.height);
+      const scale = Math.min(1, clampedMax / longest);
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.width = width;
+      canvas.height = height;
       const context = canvas.getContext("2d");
-      if (!context) throw new Error("Photo processing unavailable");
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      return new Promise<Blob>((resolve, reject) =>
+      if (!context) {
+        canvas.width = 0;
+        canvas.height = 0;
+        throw new Error("Photo processing unavailable");
+      }
+      context.drawImage(bitmap, 0, 0, width, height);
+
+      return new Promise<Blob>((resolve, reject) => {
+        // Try WebP first; gracefully fallback to JPEG 0.8 quality if WebP encoding is unsupported
         canvas.toBlob(
-          (blob) =>
-            blob
-              ? resolve(blob)
-              : reject(new Error("Could not compress photo")),
+          (blob) => {
+            if (blob) {
+              canvas.width = 0;
+              canvas.height = 0;
+              resolve(blob);
+            } else {
+              canvas.toBlob(
+                (jpegBlob) => {
+                  canvas.width = 0;
+                  canvas.height = 0;
+                  if (jpegBlob) resolve(jpegBlob);
+                  else reject(new Error("Could not compress photo"));
+                },
+                "image/jpeg",
+                Math.min(quality, 0.8),
+              );
+            }
+          },
           "image/webp",
-          quality,
-        ),
-      );
+          Math.min(quality, 0.8),
+        );
+      });
     }
-    let blob = await render(1280, 0.78);
-    if (blob.size > 250 * 1024) blob = await render(1100, 0.68);
-    if (blob.size > 250 * 1024) blob = await render(960, 0.58);
-    return { blob, thumbnail: await render(320, 0.65) };
+
+    let blob = await render(1600, 0.8);
+    if (blob.size > 350 * 1024) blob = await render(1280, 0.75);
+    if (blob.size > 350 * 1024) blob = await render(1000, 0.7);
+    const thumbnail = await render(320, 0.7);
+    return { blob, thumbnail };
   } finally {
     bitmap.close();
   }
@@ -37,14 +73,18 @@ export function downloadBlob(blob: Blob, name: string) {
   a.href = url;
   a.download = name;
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 export async function shareCard(title: string, lines: string[]) {
   const canvas = document.createElement("canvas");
   canvas.width = 720;
   canvas.height = 960;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Card rendering unavailable");
+  if (!ctx) {
+    canvas.width = 0;
+    canvas.height = 0;
+    throw new Error("Card rendering unavailable");
+  }
   ctx.fillStyle = "#faf3e8";
   ctx.fillRect(0, 0, 720, 960);
   ctx.fillStyle = "#6b4930";
@@ -75,7 +115,12 @@ export async function shareCard(title: string, lines: string[]) {
   ctx.fillText("Saved moments. Good places.", 48, 920);
   const blob = await new Promise<Blob>((resolve, reject) =>
     canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("Could not create card"))),
+      (b) => {
+        canvas.width = 0;
+        canvas.height = 0;
+        if (b) resolve(b);
+        else reject(new Error("Could not create card"));
+      },
       "image/png",
     ),
   );

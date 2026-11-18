@@ -107,6 +107,34 @@ export default function LogSpotModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<Spot | null>(null);
+  const backdropPointerDownRef = useRef<EventTarget | null>(null);
+
+  // Keep ref of photo previews so they are always revoked on unmount
+  const photoPreviewsRef = useRef<string[]>([]);
+  useEffect(() => {
+    photoPreviewsRef.current = photoPreviews;
+  }, [photoPreviews]);
+
+  useEffect(() => {
+    return () => {
+      photoPreviewsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore
+        }
+      });
+    };
+  }, []);
+
+  // Lock background scroll when modal is open
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   // Escape key handler
   useEffect(() => {
@@ -193,7 +221,9 @@ export default function LogSpotModal({
         setPhotoPreviews((prev) => [...prev, previewUrl]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to process photo.");
+      const msg = err instanceof Error ? err.message : "Failed to process photo.";
+      setError(msg);
+      showToast("Could not process photo format. Please select a JPEG, PNG or WebP image.", "error");
     } finally {
       setProcessingPhoto(false);
       e.target.value = "";
@@ -341,46 +371,55 @@ export default function LogSpotModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-backdrop"
+      className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-backdrop"
+      onPointerDown={(e) => {
+        backdropPointerDownRef.current = e.target;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (
+          e.target === e.currentTarget &&
+          backdropPointerDownRef.current === e.currentTarget
+        ) {
+          onClose();
+        }
       }}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Save spot modal"
-        className="relative w-full max-w-lg max-h-[90dvh] bg-white dark:bg-[#1C1612] rounded-2xl shadow-2xl border border-stone-200 dark:border-stone-800 flex flex-col overflow-hidden animate-modal-enter"
+        className="relative w-full max-w-lg max-h-[90dvh] bg-white dark:bg-[#1C1612] rounded-t-3xl sm:rounded-2xl shadow-2xl border border-stone-200 dark:border-stone-800 flex flex-col overflow-hidden animate-modal-enter"
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-stone-200/80 dark:border-stone-800 flex items-center justify-between shrink-0 bg-[#FAF7F2] dark:bg-[#15110F]">
+        <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-stone-200/80 dark:border-stone-800 flex items-center justify-between shrink-0 bg-[#FAF7F2] dark:bg-[#15110F]">
           <div className="flex items-center gap-2">
             <span
               className={`w-2.5 h-2.5 rounded-full ${
                 mode === "wishlist" ? "bg-indigo-600" : "bg-amber-600"
               }`}
             />
-            <h2 className="font-serif font-bold text-lg text-stone-900 dark:text-white">
+            <h2 className="font-serif font-bold text-base sm:text-lg text-stone-900 dark:text-white truncate">
               {mode === "visit" ? "Save Place · Been Here" : "Save Place · Want to Try"}
             </h2>
           </div>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close modal"
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+            className="min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-stone-900 dark:text-stone-100">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4 text-stone-900 dark:text-stone-100">
           {/* Segmented Status Selector: Been Here vs Want to Try */}
           <div className="grid grid-cols-2 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl text-xs font-semibold">
             <button
               type="button"
               onClick={() => setMode("visit")}
-              className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`min-h-[44px] py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 mode === "visit"
                   ? "bg-white dark:bg-[#1C1612] text-stone-900 dark:text-white shadow-xs font-bold"
                   : "text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
@@ -392,7 +431,7 @@ export default function LogSpotModal({
             <button
               type="button"
               onClick={() => setMode("wishlist")}
-              className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`min-h-[44px] py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 mode === "wishlist"
                   ? "bg-white dark:bg-[#1C1612] text-indigo-700 dark:text-indigo-400 shadow-xs font-bold"
                   : "text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
@@ -414,7 +453,7 @@ export default function LogSpotModal({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Type café or restaurant name…"
-                className="w-full h-11 px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 text-sm outline-none transition-all placeholder:text-stone-400"
+                className="w-full h-11 px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 text-base md:text-sm outline-none transition-all placeholder:text-stone-400"
                 autoFocus={!initialVenue}
               />
               {searching && (
@@ -466,27 +505,29 @@ export default function LogSpotModal({
               <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider mb-1.5">
                 Your Rating
               </label>
-              <div className="flex items-center gap-2">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    onClick={() => setRating(star)}
-                    onMouseEnter={() => setHoverRating(star)}
-                    onMouseLeave={() => setHoverRating(0)}
-                    className="p-1 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
-                    aria-label={`Rate ${star} stars`}
-                  >
-                    <Star
-                      className={`w-7 h-7 transition-colors ${
-                        (hoverRating || rating) >= star
-                          ? "fill-amber-500 text-amber-500"
-                          : "text-stone-300 dark:text-stone-700"
-                      }`}
-                    />
-                  </button>
-                ))}
-                <span className="text-xs font-semibold text-stone-600 dark:text-stone-300 ml-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      onMouseEnter={() => setHoverRating(star)}
+                      onMouseLeave={() => setHoverRating(0)}
+                      className="min-w-[44px] min-h-[44px] flex items-center justify-center p-1 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                      aria-label={`Rate ${star} stars`}
+                    >
+                      <Star
+                        className={`w-7 h-7 transition-colors ${
+                          (hoverRating || rating) >= star
+                            ? "fill-amber-500 text-amber-500"
+                            : "text-stone-300 dark:text-stone-700"
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs font-semibold text-stone-600 dark:text-stone-300 ml-1">
                   {rating === 0
                     ? "Tap to rate"
                     : rating === 5
@@ -520,7 +561,7 @@ export default function LogSpotModal({
                   ? "e.g. Spanish Latte, Truffle Pasta, Sourdough…"
                   : "e.g. Recommended by Sarah, try their iced matcha latte…"
               }
-              className="w-full h-11 px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 text-xs outline-none placeholder:text-stone-400"
+              className="w-full h-11 px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 text-base md:text-sm outline-none placeholder:text-stone-400"
             />
           </div>
 
@@ -533,7 +574,7 @@ export default function LogSpotModal({
               <button
                 type="button"
                 onClick={() => setShowNewCollection(!showNewCollection)}
-                className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer min-h-[36px]"
               >
                 <FolderPlus className="w-3 h-3" />
                 <span>+ New Collection</span>
@@ -547,7 +588,7 @@ export default function LogSpotModal({
                   placeholder="e.g. Best Matchas, Date Night Spots…"
                   value={newCollectionName}
                   onChange={(e) => setNewCollectionName(e.target.value)}
-                  className="flex-1 h-8 px-2.5 rounded-lg bg-white dark:bg-stone-900 text-xs border border-stone-200 dark:border-stone-700 outline-none"
+                  className="flex-1 h-10 px-2.5 rounded-lg bg-white dark:bg-stone-900 text-base md:text-xs border border-stone-200 dark:border-stone-700 outline-none"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -559,7 +600,7 @@ export default function LogSpotModal({
                   type="button"
                   onClick={handleCreateCollectionInline}
                   disabled={creatingCollection || !newCollectionName.trim()}
-                  className="px-3 py-1 bg-amber-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer"
+                  className="min-h-[44px] px-3.5 py-1.5 bg-amber-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer"
                 >
                   Add
                 </button>
@@ -579,7 +620,7 @@ export default function LogSpotModal({
                           isSelected ? prev.filter((id) => id !== col.id) : [...prev, col.id]
                         )
                       }
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                      className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                         isSelected
                           ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 font-bold"
                           : "bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
@@ -630,7 +671,7 @@ export default function LogSpotModal({
                           key={cat.key}
                           type="button"
                           onClick={() => setCategory(cat.key as SpotCategory)}
-                          className={`py-2 px-1 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 border transition-all cursor-pointer ${
+                          className={`min-h-[44px] py-2 px-1 rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
                             isSelected
                               ? "bg-amber-100 dark:bg-amber-950/80 text-amber-950 dark:text-amber-200 border-amber-300 dark:border-amber-700 shadow-2xs"
                               : "bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200/70 dark:border-stone-700"
@@ -655,7 +696,7 @@ export default function LogSpotModal({
                         key={tier}
                         type="button"
                         onClick={() => setBudget(budget === tier ? undefined : tier)}
-                        className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                        className={`min-h-[44px] py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                           budget === tier
                             ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 shadow-2xs"
                             : "bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
@@ -688,14 +729,17 @@ export default function LogSpotModal({
                           <button
                             type="button"
                             onClick={() => removePhoto(i)}
-                            className="absolute top-1 right-1 w-5 h-5 bg-black/70 text-white rounded-full flex items-center justify-center hover:bg-black transition-colors cursor-pointer"
+                            aria-label="Remove photo"
+                            className="absolute -top-1 -right-1 min-w-[44px] min-h-[44px] flex items-center justify-center cursor-pointer z-10"
                           >
-                            <X className="w-3.5 h-3.5" />
+                            <span className="w-6 h-6 bg-black/80 text-white rounded-full flex items-center justify-center shadow-xs hover:bg-black transition-colors">
+                              <X className="w-3.5 h-3.5" />
+                            </span>
                           </button>
                         </div>
                       ))}
 
-                      <label className="w-20 h-20 rounded-xl border-2 border-dashed border-stone-300 dark:border-stone-700 hover:border-amber-600 dark:hover:border-amber-500 flex flex-col items-center justify-center gap-1 text-stone-500 dark:text-stone-400 hover:text-amber-700 dark:hover:text-amber-400 cursor-pointer transition-colors bg-stone-50 dark:bg-stone-800/80">
+                      <label className="min-w-[80px] min-h-[80px] w-20 h-20 rounded-xl border-2 border-dashed border-stone-300 dark:border-stone-700 hover:border-amber-600 dark:hover:border-amber-500 flex flex-col items-center justify-center gap-1 text-stone-500 dark:text-stone-400 hover:text-amber-700 dark:hover:text-amber-400 cursor-pointer transition-colors bg-stone-50 dark:bg-stone-800/80">
                         <Camera className="w-6 h-6" />
                         <span className="text-[10px] font-bold">+ Upload</span>
                         <input
@@ -735,7 +779,7 @@ export default function LogSpotModal({
                                 active ? prev.filter((t) => t !== tag) : [...prev, tag]
                               )
                             }
-                            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer capitalize ${
+                            className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer capitalize ${
                               active
                                 ? "bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 font-semibold"
                                 : "bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700"
@@ -760,7 +804,7 @@ export default function LogSpotModal({
                         type="datetime-local"
                         value={date}
                         onChange={(e) => setDate(e.target.value)}
-                        className="w-full h-10 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600"
+                        className="w-full h-11 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600"
                       />
                     </div>
                     <div>
@@ -774,7 +818,7 @@ export default function LogSpotModal({
                         placeholder="e.g. 450"
                         value={spend}
                         onChange={(e) => setSpend(e.target.value)}
-                        className="w-full h-10 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600 placeholder:text-stone-400"
+                        className="w-full h-11 px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-base md:text-xs text-stone-800 dark:text-stone-100 outline-none focus:border-amber-600 placeholder:text-stone-400"
                       />
                     </div>
                   </div>
@@ -817,11 +861,11 @@ export default function LogSpotModal({
         </div>
 
         {/* Modal Footer with Single Cancel Button & Clear Action Copy */}
-        <div className="px-5 py-3.5 border-t border-stone-200/80 dark:border-stone-800 bg-[#FAF7F2] dark:bg-[#15110F] flex items-center justify-end gap-2.5 shrink-0">
+        <div className="px-4 sm:px-5 py-3 sm:py-3.5 border-t border-stone-200/80 dark:border-stone-800 bg-[#FAF7F2] dark:bg-[#15110F] flex items-center justify-end gap-2.5 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white hover:bg-stone-200/60 dark:hover:bg-stone-800 rounded-xl transition-colors cursor-pointer"
+            className="min-h-[44px] px-4 py-2 text-xs font-semibold text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white hover:bg-stone-200/60 dark:hover:bg-stone-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center"
           >
             Cancel
           </button>
@@ -829,10 +873,10 @@ export default function LogSpotModal({
             type="button"
             onClick={() => handleSave()}
             disabled={saving || processingPhoto}
-            className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5 text-white ${
+            className={`min-h-[44px] px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5 text-white ${
               mode === "wishlist"
-                ? "bg-indigo-600 hover:bg-indigo-700"
-                : "bg-amber-700 hover:bg-amber-800"
+                ? "bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800"
+                : "bg-amber-700 hover:bg-amber-800 active:bg-amber-900"
             }`}
           >
             {saving ? (
