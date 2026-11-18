@@ -870,10 +870,76 @@ export default function SpotsMap({
     const p = initial.current;
     const map = L.map(container.current, {
       zoomControl: false,
+      attributionControl: false,
       preferCanvas: true,
       maxZoom: 20,
     }).setView(p ? [p.lat, p.lng] : [14.5995, 120.9842], p ? 16 : 13);
     mapRef.current = map;
+
+    // Custom attribution control without Leaflet prefix
+    const attributionControl = L.control.attribution({
+      prefix: false,
+      position: "bottomright",
+    });
+
+    const origUpdate = (
+      attributionControl as unknown as { _update: () => void }
+    )._update.bind(attributionControl);
+    (
+      attributionControl as unknown as { _update: () => void }
+    )._update = function () {
+      origUpdate();
+      const el = attributionControl.getContainer();
+      if (!el) return;
+      const html = el.innerHTML;
+      if (!el.querySelector(".leaflet-attribution-toggle")) {
+        el.innerHTML = `
+          <button type="button" class="leaflet-attribution-toggle" aria-label="Toggle map attribution" aria-expanded="false">
+            <span class="leaflet-attribution-icon" aria-hidden="true">ⓘ</span>
+          </button>
+          <span class="leaflet-attribution-content">${html}</span>
+        `;
+      }
+    };
+
+    attributionControl.addTo(map);
+
+    const attrContainer = attributionControl.getContainer();
+    let handleAttrClick: ((e: MouseEvent) => void) | undefined;
+    let handleOutsideAttrClick: ((e: MouseEvent | TouchEvent) => void) | undefined;
+
+    if (attrContainer) {
+      L.DomEvent.disableClickPropagation(attrContainer);
+      L.DomEvent.disableScrollPropagation(attrContainer);
+
+      handleAttrClick = (e: MouseEvent) => {
+        if ((e.target as HTMLElement).closest("a")) return;
+        e.stopPropagation();
+        const isExpanded = attrContainer.classList.toggle("is-expanded");
+        const toggleBtn = attrContainer.querySelector(".leaflet-attribution-toggle");
+        toggleBtn?.setAttribute("aria-expanded", String(isExpanded));
+        const icon = attrContainer.querySelector(".leaflet-attribution-icon");
+        if (icon) {
+          icon.textContent = isExpanded ? "✕" : "ⓘ";
+        }
+      };
+
+      attrContainer.addEventListener("click", handleAttrClick);
+
+      handleOutsideAttrClick = (e: MouseEvent | TouchEvent) => {
+        if (!attrContainer.contains(e.target as Node)) {
+          if (attrContainer.classList.contains("is-expanded")) {
+            attrContainer.classList.remove("is-expanded");
+            attrContainer.querySelector(".leaflet-attribution-toggle")?.setAttribute("aria-expanded", "false");
+            const icon = attrContainer.querySelector(".leaflet-attribution-icon");
+            if (icon) icon.textContent = "ⓘ";
+          }
+        }
+      };
+
+      document.addEventListener("click", handleOutsideAttrClick);
+      document.addEventListener("touchend", handleOutsideAttrClick);
+    }
 
     const cartoKey = (process.env.NEXT_PUBLIC_CARTO_API_KEY || "").trim();
     const voyagerTileUrl = cartoKey
@@ -883,7 +949,7 @@ export default function SpotsMap({
     // CARTO tiles stop at zoom 18; maxNativeZoom: 18 upscale smoothly up to zoom 20
     const tileLayer = L.tileLayer(voyagerTileUrl, {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors &middot; &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a>',
       subdomains: "abcd",
       maxNativeZoom: 18,
       maxZoom: 20,
@@ -1028,6 +1094,13 @@ export default function SpotsMap({
     resizeObserver.observe(container.current);
 
     return () => {
+      if (attrContainer && handleAttrClick) {
+        attrContainer.removeEventListener("click", handleAttrClick);
+      }
+      if (handleOutsideAttrClick) {
+        document.removeEventListener("click", handleOutsideAttrClick);
+        document.removeEventListener("touchend", handleOutsideAttrClick);
+      }
       reverse.current?.abort();
       resizeObserver.disconnect();
       map.off("zoomend", updateZoomClass);

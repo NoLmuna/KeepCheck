@@ -915,4 +915,145 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ================================================================== */
+/*  LEAFLET ATTRIBUTION CONTROL (KeepCheck Dark Theme & Mobile Collapse)*/
+/* ================================================================== */
+
+.leaflet-container .leaflet-control-attribution {
+  background: rgba(9, 9, 11, 0.75) !important;
+  color: #a1a1aa !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 10px !important;
+  line-height: 1.2;
+  border-radius: 9999px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  z-index: 25 !important;
+  user-select: none;
+}
+
+.leaflet-container .leaflet-control-attribution a {
+  color: #d4d4d8 !important;
+  text-decoration: none !important;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.leaflet-container .leaflet-control-attribution a:hover {
+  color: #ffffff !important;
+  text-decoration: underline !important;
+  text-underline-offset: 2px;
+}
+
+.leaflet-attribution-toggle {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a1a1aa;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.leaflet-attribution-toggle:hover {
+  color: #ffffff;
+}
+
+.leaflet-attribution-icon {
+  font-style: normal;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* Desktop: Always expanded, positioned cleanly to the left of the bottom-right zoom/locate buttons */
+@media (min-width: 768px) {
+  .leaflet-bottom.leaflet-right .leaflet-control-attribution {
+    margin-right: 72px !important;
+    margin-bottom: 12px !important;
+    padding: 5px 12px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+  }
+
+  .leaflet-attribution-toggle {
+    display: none !important;
+  }
+
+  .leaflet-attribution-content {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px;
+    white-space: nowrap;
+  }
+}
+
+/* Mobile (< 768px): Collapsed into a small circular ⓘ button by default */
+@media (max-width: 767px) {
+  .leaflet-bottom.leaflet-right .leaflet-control-attribution {
+    margin-right: 72px !important;
+    margin-bottom: 8px !important;
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+    min-height: 26px !important;
+    padding: 0 !important;
+    border-radius: 9999px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+
+  .leaflet-attribution-toggle {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .leaflet-attribution-content {
+    display: none !important;
+  }
+
+  /* Expanded on Mobile when tapped */
+  .leaflet-bottom.leaflet-right .leaflet-control-attribution.is-expanded {
+    width: auto !important;
+    height: auto !important;
+    min-height: 26px !important;
+    max-width: calc(100vw - 90px) !important;
+    padding: 4px 10px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    overflow: visible;
+  }
+
+  .leaflet-control-attribution.is-expanded .leaflet-attribution-toggle {
+    width: 16px;
+    height: 16px;
+    font-size: 11px;
+    opacity: 0.8;
+  }
+
+  .leaflet-control-attribution.is-expanded .leaflet-attribution-content {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px;
+    font-size: 10px;
+    white-space: normal;
+  }
+}
+
+
 
